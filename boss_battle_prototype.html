@@ -1,0 +1,3381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>极简Boss战弹幕生存原型 - AI策划调优演示</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0d1017;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #e6edf3;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: crosshair;
+    }
+
+    /* 顶部居中 Boss 血条 */
+    .boss-hud {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(560px, 64vw);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .boss-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+
+    .boss-title {
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .boss-phase-tag {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(239, 68, 68, 0.25);
+      border: 1px solid rgba(239, 68, 68, 0.6);
+      color: #fca5a5;
+      transition: all 0.3s ease;
+    }
+
+    .boss-phase-tag.enraged {
+      background: rgba(153, 27, 27, 0.55);
+      border-color: #ff4d4f;
+      color: #ffccc7;
+      box-shadow: 0 0 10px rgba(255, 77, 79, 0.45);
+    }
+
+    .boss-bar-bg {
+      position: relative;
+      width: 100%;
+      height: 18px;
+      background: #b91c1c; /* 红色背景 */
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-radius: 9px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    }
+
+    .boss-bar-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #16a34a, #22c55e); /* 绿色血量 */
+      transition: width 0.1s linear;
+    }
+
+    .boss-phase-divider {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.65);
+      z-index: 2;
+    }
+
+    .boss-hp-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #ffffff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      z-index: 3;
+    }
+
+    .boss-poise-bg {
+      position: relative;
+      width: 100%;
+      height: 10px;
+      margin-top: 5px;
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .boss-poise-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #d97706, #facc15);
+      transition: width 0.08s linear;
+    }
+
+    .boss-poise-fill.stunned {
+      background: linear-gradient(90deg, #94a3b8, #e2e8f0);
+    }
+
+    .boss-poise-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      color: #ffffff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+    }
+
+    /* 左上角玩家状态面板 */
+    .player-hud {
+      position: fixed;
+      top: 18px;
+      left: 20px;
+      width: 210px;
+      padding: 10px 12px;
+      background: rgba(17, 24, 39, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .hud-row {
+      margin-bottom: 8px;
+    }
+
+    .hud-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .hud-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-bottom: 4px;
+    }
+
+    .bar-track {
+      width: 100%;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .player-hp-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #2563eb, #38bdf8);
+      transition: width 0.12s ease-out;
+    }
+
+    .dash-cd-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #a855f7, #e879f9);
+    }
+
+    .player-mp-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #06b6d4, #67e8f9);
+      transition: width 0.12s ease-out;
+    }
+
+    .player-mp-fill.ready {
+      background: linear-gradient(90deg, #06b6d4, #fde047);
+      box-shadow: 0 0 8px rgba(103, 232, 249, 0.8);
+    }
+
+    /* 左下角操作提示 */
+    .controls-hint {
+      position: fixed;
+      bottom: 16px;
+      left: 20px;
+      padding: 8px 12px;
+      background: rgba(17, 24, 39, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.6;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .controls-hint kbd {
+      display: inline-block;
+      padding: 1px 5px;
+      margin: 0 2px;
+      font-size: 11px;
+      color: #e2e8f0;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* 右上角 DAT.GUI 风格策划调试面板 */
+    .debug-panel {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 272px;
+      background: rgba(20, 22, 28, 0.84);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-left: 3px solid #38bdf8;
+      border-radius: 4px;
+      font-family: "Consolas", "Monaco", "PingFang SC", monospace;
+      font-size: 11px;
+      color: #e2e8f0;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(8px);
+      z-index: 20;
+    }
+
+    .debug-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+    }
+
+    .debug-body {
+      padding: 8px 10px;
+    }
+
+    .debug-panel.collapsed .debug-body {
+      display: none;
+    }
+
+    .gui-item {
+      margin-bottom: 9px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .gui-item:last-of-type {
+      margin-bottom: 8px;
+    }
+
+    .gui-label-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      color: #cbd5e1;
+    }
+
+    .gui-val {
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    .gui-slider {
+      width: 100%;
+      accent-color: #38bdf8;
+      cursor: pointer;
+      height: 4px;
+    }
+
+    .gui-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .gui-btn {
+      flex: 1;
+      padding: 5px 8px;
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 3px;
+      color: #e0f2fe;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .gui-btn:hover {
+      background: rgba(56, 189, 248, 0.32);
+    }
+
+    /* 胜负结算弹窗 */
+    .result-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 10, 16, 0.78);
+      backdrop-filter: blur(5px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+    }
+
+    .result-overlay.visible {
+      display: flex;
+    }
+
+    .result-card {
+      width: min(380px, 88vw);
+      padding: 28px 24px;
+      background: #151924;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .result-title {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    .result-title.win {
+      color: #4ade80;
+    }
+
+    .result-title.lose {
+      color: #f87171;
+    }
+
+    .result-stats {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.8;
+      margin-bottom: 22px;
+    }
+
+    .restart-btn {
+      padding: 10px 28px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffffff;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .restart-btn:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .restart-btn:active {
+      transform: translateY(0);
+    }
+
+    .result-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .next-btn {
+      padding: 10px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffffff;
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(34, 197, 94, 0.45);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .next-btn:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .upgrade-section {
+      display: none;
+      margin-bottom: 18px;
+      text-align: left;
+    }
+
+    .upgrade-section.visible {
+      display: block;
+    }
+
+    .upgrade-heading {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fde047;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .upgrade-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .upgrade-card {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 8px;
+      color: #f8fafc;
+      text-align: left;
+      cursor: pointer;
+      transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .upgrade-card:hover {
+      transform: translateY(-1px);
+      border-color: #fde047;
+      background: rgba(51, 65, 85, 0.95);
+    }
+
+    .upgrade-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 2px;
+    }
+
+    .upgrade-card-desc {
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .hud-coin-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      pointer-events: auto;
+    }
+
+    .coin-badge {
+      font-size: 13px;
+      font-weight: 700;
+      color: #facc15;
+    }
+
+    .hud-shop-btn {
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #0f172a;
+      background: #facc15;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .hud-shop-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    .hud-stats-line {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+
+    /* 商店弹窗 */
+    .shop-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 10, 16, 0.82);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 40;
+    }
+
+    .shop-overlay.visible {
+      display: flex;
+    }
+
+    .shop-card {
+      width: min(460px, 92vw);
+      padding: 22px 20px;
+      background: #151924;
+      border: 1px solid rgba(250, 204, 21, 0.35);
+      border-radius: 12px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+    }
+
+    .shop-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .shop-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fde047;
+    }
+
+    .shop-coins {
+      font-size: 14px;
+      font-weight: 700;
+      color: #facc15;
+    }
+
+    .shop-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      margin: 10px 0 6px;
+    }
+
+    .shop-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .shop-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+
+    .shop-item-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .shop-item-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+
+    .shop-item-desc {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .shop-buy-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+      background: #facc15;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .shop-buy-btn:disabled {
+      background: #475569;
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .shop-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      gap: 10px;
+    }
+
+    /* 主界面封面（全屏三栏式大厅：左商店 / 中挑战 / 右留白） */
+    .menu-overlay {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      padding: 24px 28px;
+      background: radial-gradient(circle at 50% 35%, rgba(30, 41, 59, 0.72), rgba(7, 10, 16, 0.96));
+      backdrop-filter: blur(4px);
+      display: none;
+      grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.15fr) minmax(260px, 1fr);
+      gap: 24px;
+      align-items: stretch;
+      z-index: 35;
+      overflow: hidden;
+    }
+
+    .menu-overlay.visible {
+      display: grid;
+    }
+
+    .menu-col-shop {
+      display: flex;
+      flex-direction: column;
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid rgba(250, 204, 21, 0.32);
+      border-radius: 16px;
+      padding: 20px 18px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      overflow-y: auto;
+    }
+
+    .menu-col-center {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 32px 28px;
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 16px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+    }
+
+    .menu-col-right {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px dashed rgba(148, 163, 184, 0.16);
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.28);
+      color: rgba(148, 163, 184, 0.35);
+      font-size: 12px;
+      letter-spacing: 1px;
+      pointer-events: none;
+    }
+
+    .menu-card {
+      width: 100%;
+    }
+
+    .menu-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 999px;
+    }
+
+    .menu-title {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      color: #ffffff;
+      margin-bottom: 6px;
+      text-shadow: 0 2px 16px rgba(56, 189, 248, 0.35);
+    }
+
+    .menu-subtitle {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 18px;
+    }
+
+    .menu-summary {
+      padding: 10px 14px;
+      margin-bottom: 18px;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      font-size: 12px;
+      color: #cbd5e1;
+      line-height: 1.7;
+    }
+
+    .menu-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .menu-btn-primary {
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.4);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .menu-btn-primary:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+
+    .menu-btn-stage2 {
+      padding: 11px 24px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(124, 58, 237, 0.4);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .menu-btn-stage2:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+
+    .menu-btn-shop {
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      background: linear-gradient(135deg, #facc15, #fde047);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(250, 204, 21, 0.3);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+
+    .menu-btn-shop:hover {
+      filter: brightness(1.05);
+      transform: translateY(-1px);
+    }
+
+    .menu-tips {
+      text-align: left;
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.75;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+    }
+
+    body.in-menu .boss-hud,
+    body.in-menu .player-hud,
+    body.in-menu .controls-hint {
+      display: none;
+    }
+  </style>
+</head>
+<body class="in-menu">
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- 顶部居中 Boss 血条 -->
+  <div class="boss-hud">
+    <div class="boss-header">
+      <span id="bossTitle" class="boss-title">STAGE 1/2 · CORE GUARDIAN</span>
+      <span id="bossPhaseTag" class="boss-phase-tag">PHASE 1: 弹幕压制</span>
+    </div>
+    <div class="boss-bar-bg">
+      <div id="bossHpFill" class="boss-bar-fill"></div>
+      <div class="boss-phase-divider" title="50% 狂暴阈值"></div>
+      <div id="bossHpText" class="boss-hp-text">200 / 200</div>
+    </div>
+    <div class="boss-poise-bg">
+      <div id="bossPoiseFill" class="boss-poise-fill"></div>
+      <div id="bossPoiseText" class="boss-poise-text">韧性 100 / 100</div>
+    </div>
+  </div>
+
+  <!-- 左上角玩家状态 -->
+  <div class="player-hud">
+    <div class="hud-row">
+      <div class="hud-label">
+        <span>玩家生命 (HP)</span>
+        <span id="playerHpText">100 / 100</span>
+      </div>
+      <div class="bar-track">
+        <div id="playerHpFill" class="player-hp-fill"></div>
+      </div>
+    </div>
+    <div class="hud-row">
+      <div class="hud-label">
+        <span>冲刺冷却 (Space)</span>
+        <span id="dashStatusText">就绪</span>
+      </div>
+      <div class="bar-track">
+        <div id="dashCdFill" class="dash-cd-fill"></div>
+      </div>
+    </div>
+    <div class="hud-row">
+      <div class="hud-label">
+        <span>能量 MP (右键激光)</span>
+        <span id="mpStatusText">0 / 10</span>
+      </div>
+      <div class="bar-track">
+        <div id="playerMpFill" class="player-mp-fill"></div>
+      </div>
+    </div>
+    <div class="hud-row">
+      <div class="hud-label">
+        <span>清弹技能 (E键)</span>
+        <span id="clearSkillText">未解锁</span>
+      </div>
+    </div>
+    <div id="hudStatsLine" class="hud-stats-line">
+      攻击 +0 · 暴击 0.0% · 攻速 +0%
+    </div>
+    <div class="hud-coin-row">
+      <span id="hudCoinsText" class="coin-badge">💰 0 金币</span>
+    </div>
+  </div>
+
+  <!-- 左下角操作提示 -->
+  <div class="controls-hint">
+    <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移动</div>
+    <div><kbd>Space</kbd> 冲刺（半透明 + 无敌帧，撞击弹幕蓄 MP）</div>
+    <div><kbd>鼠标左键</kbd> 点击或长按发射弹幕 · <kbd>鼠标右键</kbd> MP ≥ 5 发射激光</div>
+    <div><kbd>E</kbd> 释放清弹技能（主界面商店解锁）</div>
+  </div>
+
+  <!-- 右上角 DAT.GUI 风格策划调试面板 -->
+  <div id="debugPanel" class="debug-panel">
+    <div id="debugHeader" class="debug-header">
+      <span>⚙ 策划实时调参面板 (AI+调优)</span>
+      <span id="debugToggleIcon">▼</span>
+    </div>
+    <div class="debug-body">
+      <div class="gui-item">
+        <div class="gui-label-row">
+          <span>Boss Max HP</span>
+          <span id="valBossMaxHp" class="gui-val">200</span>
+        </div>
+        <input id="sliderBossMaxHp" class="gui-slider" type="range" min="100" max="1500" step="50" value="200" />
+      </div>
+
+      <div class="gui-item">
+        <div class="gui-label-row">
+          <span>Boss Speed (P2追踪)</span>
+          <span id="valBossSpeed" class="gui-val">2.0</span>
+        </div>
+        <input id="sliderBossSpeed" class="gui-slider" type="range" min="0.5" max="6.0" step="0.2" value="2.0" />
+      </div>
+
+      <div class="gui-item">
+        <div class="gui-label-row">
+          <span>Bullet Speed (弹幕速度)</span>
+          <span id="valBulletSpeed" class="gui-val">4.0</span>
+        </div>
+        <input id="sliderBulletSpeed" class="gui-slider" type="range" min="1.5" max="10.0" step="0.5" value="4.0" />
+      </div>
+
+      <div class="gui-item">
+        <div class="gui-label-row">
+          <span>Player Max HP</span>
+          <span id="valPlayerMaxHp" class="gui-val">100</span>
+        </div>
+        <input id="sliderPlayerMaxHp" class="gui-slider" type="range" min="20" max="300" step="10" value="100" />
+      </div>
+
+      <div class="gui-item">
+        <div class="gui-label-row">
+          <span>Dash Invuln (冲刺无敌秒数)</span>
+          <span id="valDashInvuln" class="gui-val">0.30s</span>
+        </div>
+        <input id="sliderDashInvuln" class="gui-slider" type="range" min="0.1" max="1.0" step="0.05" value="0.3" />
+      </div>
+
+      <div class="gui-actions">
+        <button id="btnResetConfig" class="gui-btn">恢复默认参数</button>
+        <button id="btnQuickRestart" class="gui-btn">重置本关</button>
+      </div>
+      <div class="gui-actions">
+        <button id="btnLevel1" class="gui-btn">第 1 关 (原型)</button>
+        <button id="btnLevel2" class="gui-btn">第 2 关 (幻影)</button>
+      </div>
+      <div class="gui-actions">
+        <button id="btnToggleBot" class="gui-btn">🤖 AI 托管: 关</button>
+        <button id="btnStressTest" class="gui-btn">⚡ 压力测试(5局)</button>
+      </div>
+      <div class="gui-actions">
+        <button id="btnBackMenuDebug" class="gui-btn">🏠 返回主界面</button>
+      </div>
+      <div id="stressTestResult" style="margin-top:6px;font-size:10px;color:#94a3b8;line-height:1.45;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- 封面主界面（占满全屏：左商店 / 中挑战 / 右留白） -->
+  <div id="mainMenuOverlay" class="menu-overlay visible">
+    <!-- 左侧：战术补给商店 -->
+    <div id="menuShopPanel" class="menu-col-shop">
+      <div class="shop-header">
+        <span class="shop-title">🛒 战术补给商店</span>
+        <span id="shopCoinsText" class="shop-coins">💰 0 金币</span>
+      </div>
+
+      <div class="shop-section-title">主动技能</div>
+      <div class="shop-list">
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">1. 清除玩家周围所有弹幕 (E键)</span>
+            <span id="shopDescClearSkill" class="shop-item-desc">释放电磁冲击波，清除周围半径 280px 内所有弹幕（冷却 5s）</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="clearSkill">100 金币</button>
+        </div>
+      </div>
+
+      <div class="shop-section-title">属性强化（可叠加购买）</div>
+      <div class="shop-list">
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">攻击力 +1</span>
+            <span id="shopDescAtk" class="shop-item-desc">当前加成：+0</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="atk">10 金币</button>
+        </div>
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">暴击率 +0.5%</span>
+            <span id="shopDescCrit" class="shop-item-desc">当前暴击率：0.0%（暴击造成 200% 伤害）</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="crit">10 金币</button>
+        </div>
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">攻速 +20%</span>
+            <span id="shopDescAspd" class="shop-item-desc">当前加成：+0%</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="aspd">10 金币</button>
+        </div>
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">血量 +10</span>
+            <span id="shopDescHp" class="shop-item-desc">当前加成：+0 HP</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="hp">10 金币</button>
+        </div>
+      </div>
+
+      <div class="shop-section-title">高风险高回报（限购 1 次）</div>
+      <div class="shop-list">
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">🔥 玻璃大炮</span>
+            <span id="shopDescGlass" class="shop-item-desc">攻击力 +5，但生命上限 -30%</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="glassCannon">40 金币</button>
+        </div>
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">🧲 磁力核心</span>
+            <span id="shopDescMagnet" class="shop-item-desc">自动吸附全图血包与护盾</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="magnet">30 金币</button>
+        </div>
+        <div class="shop-item">
+          <div class="shop-item-info">
+            <span class="shop-item-name">⚡ 双生激光</span>
+            <span id="shopDescTwinLaser" class="shop-item-desc">保留 5 MP 普通激光(50伤)；满 10 MP 释放双生激光(120伤 + 击溃50%韧性/低于30直接击碎)</span>
+          </div>
+          <button type="button" class="shop-buy-btn" data-shop="twinLaser">60 金币</button>
+        </div>
+      </div>
+
+      <div class="shop-footer">
+        <button type="button" id="btnAddTestCoins" class="gui-btn">+100 测试金币(调试)</button>
+      </div>
+    </div>
+
+    <!-- 中间：挑战页面（第一关 / 关卡出战） -->
+    <div class="menu-col-center">
+      <div class="menu-card">
+        <div class="menu-badge">CORE BREAKER // 极简Boss战弹幕生存原型</div>
+        <div class="menu-title">弹幕破韧者</div>
+        <div class="menu-subtitle">双阶段 Boss AI · 韧性破防 · 完美闪避 · 商店养成</div>
+
+        <div id="menuSummary" class="menu-summary">
+          💰 当前金币：0 · 生命上限：100 · 攻击加成：+0<br/>
+          暴击率：0.0% · 攻速加成：+0% · 清弹技能：未解锁
+        </div>
+
+        <div class="menu-actions">
+          <button type="button" id="btnStartStage1" class="menu-btn-primary">▶ 开始挑战（第 1 关）</button>
+          <button type="button" id="btnStartStage2" class="menu-btn-stage2" style="display: none;">▶ 继续挑战（第 2 关 · 幻影哨兵）</button>
+        </div>
+
+        <div class="menu-tips">
+          <div>• <b>移动与攻击</b>：WASD / 方向键移动，鼠标左键点击/长按朝指针方向射击</div>
+          <div>• <b>冲刺与激光</b>：空格冲刺（前0.12s完美闪避触发子弹时间+削韧），撞弹蓄MP按右键放激光</div>
+          <div>• <b>韧性与休整</b>：Boss 有韧性期间减伤 80%，破韧眩晕 1.5s；击败 Boss 获金币可在左侧商店强化</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：预留扩展区域 -->
+    <div class="menu-col-right">
+      <span>RESERVED // 扩展功能预留区</span>
+    </div>
+  </div>
+
+  <!-- 胜负结算弹窗 -->
+  <div id="resultOverlay" class="result-overlay">
+    <div class="result-card">
+      <div id="resultTitle" class="result-title">挑战成功</div>
+      <div id="resultStats" class="result-stats"></div>
+      <div id="upgradeSection" class="upgrade-section">
+        <div class="upgrade-heading">⚡ 选择一项强化进入第 2 关 ⚡</div>
+        <div class="upgrade-grid">
+          <button type="button" class="upgrade-card" data-upgrade="bullet">
+            <div class="upgrade-card-title">1. 弹道 +1</div>
+            <div class="upgrade-card-desc">主武器每次额外多发射 1 条弹道</div>
+          </button>
+          <button type="button" class="upgrade-card" data-upgrade="damage">
+            <div class="upgrade-card-title">2. 伤害 × 2</div>
+            <div class="upgrade-card-desc">玩家弹幕与激光造成双倍伤害</div>
+          </button>
+          <button type="button" class="upgrade-card" data-upgrade="wingman">
+            <div class="upgrade-card-title">3. 自动追踪僚机</div>
+            <div class="upgrade-card-desc">召唤 1 架自动索敌追踪僚机（伤害为本机的 50%）</div>
+          </button>
+        </div>
+      </div>
+      <div class="result-actions">
+        <button type="button" id="btnBackToMenu" class="next-btn">🏠 返回主界面</button>
+        <button type="button" id="btnNextLevel" class="next-btn" style="display: none;">进入第 2 关</button>
+        <button type="button" id="btnRestart" class="restart-btn">重新开始</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. 策划核心配置参数区 (Variables centralized at top for easy tuning)
+    // =========================================================================
+    const DEFAULT_CONFIG = {
+      // 玩家参数
+      playerMaxHp: 100,
+      playerSpeed: 4.5,
+      playerRadius: 13,
+      playerFireInterval: 0.16,       // 玩家攻击间隔(秒)
+      playerBulletSpeed: 10.5,
+      playerBulletDamage: 2,          // 默认100血Boss约8秒持续输出可击杀
+      playerMaxMp: 10,                // MP上限依旧为10
+      playerLaserCost: 5,             // 收集5次即可触发右键激光
+      playerLaserDamage: 50,          // 右键激光伤害
+      playerLaserDuration: 0.28,      // 玩家激光显示持续时间(秒)
+      dashDuration: 0.3,              // 冲刺持续时间(秒)
+      dashInvulnDuration: 0.3,        // 冲刺无敌时间(秒)
+      dashCooldown: 1.0,              // 冲刺冷却时间(秒)
+      dashSpeedMultiplier: 2.8,       // 冲刺速度倍率
+      justDodgeWindow: 0.12,          // 完美闪避判定窗口(冲刺前0.12秒)
+      justDodgeSlowDuration: 0.25,    // 完美闪避子弹时间时长(秒)
+      justDodgeTimeScale: 0.35,       // 子弹时间缩放倍率
+      justDodgePoiseDamage: 10,       // 完美闪避反击波削韧值
+
+      // Boss 参数
+      bossMaxHp: 200,                 // 第一关Boss默认血量200
+      bossMaxPoise: 100,              // 第一关Boss默认韧性100
+      bossPoiseDamagePerHit: 2,       // 每次受击削减的韧性
+      bossPoiseDamageScale: 0.2,      // 有韧性条期间受到的伤害倍率 (20%，即减伤80%)
+      bossPoiseResetDelay: 5.0,       // 5秒未受攻击时韧性恢复满
+      bossStunDuration: 1.5,          // 韧性打空造成的眩晕时长(秒)
+      bossStunDropChance: 0.3,        // 造成Boss眩晕后掉落血包或护盾的概率(30%)
+      bossSpeed: 2.0,                 // Phase 2 追踪速度
+      bossSize: 58,                   // Boss 方块边长
+      bossPhase2Threshold: 0.5,       // 50% 血量进入二阶段
+
+      // 二阶段狂暴陨石参数
+      meteorSpawnInterval: 1.3,       // 二阶段随机陨石生成间隔(秒)
+      meteorWarningTime: 1.1,         // 陨石落地前预警时间(秒)
+      meteorRadius: 44,               // 陨石爆炸范围半径
+      meteorDamage: 18,               // 陨石伤害
+
+      // 商店主动技能参数
+      clearSkillRadius: 280,          // 清除周围弹幕半径
+      clearSkillCooldown: 5.0,        // 清弹技能冷却(秒)
+
+      // 弹幕参数
+      bulletSpeed: 4.0,               // 基础弹幕速度(受调参面板控制)
+      p1RingInterval: 2.0,            // Phase 1 环形弹幕间隔(秒)
+      p1RingCount: 16,                // Phase 1 环形子弹数量
+      p1FanInterval: 1.0,             // Phase 1 扇形高速弹间隔(秒)
+      p1FanSpeedMultiplier: 1.45,     // Phase 1 扇形高速弹倍率
+
+      p2SpiralInterval: 0.5,          // Phase 2 螺旋高密度弹幕间隔(秒)
+      p2SpiralArms: 6,                // Phase 2 每次螺旋发射分支数
+      p2LaserChargeTime: 3.0,         // Phase 2 激光蓄力时间(秒)
+      p2LaserWarningTime: 1.0,        // Phase 2 激光预警显示时间(秒)
+      p2LaserActiveTime: 0.35,        // Phase 2 激光持续伤害判定时间(秒)
+      p2LaserDamage: 25,              // 激光高额伤害
+      bulletDamage: 12,               // 普通弹幕伤害
+
+      // 战斗反馈参数
+      hitFlashDuration: 0.12,         // 受击闪烁时长(秒)
+      shakeIntensity: 7               // 受击屏幕震动强度
+    };
+
+    // 运行时可变参数（由右上角策划面板实时修改）
+    const CONFIG = { ...DEFAULT_CONFIG };
+
+    // 关卡配置表
+    const LEVEL_CONFIGS = {
+      1: {
+        id: 1,
+        title: "STAGE 1/2 · CORE GUARDIAN",
+        hpScale: 1.0,
+        poiseMax: 100,
+        colorP1: "#ef4444",
+        colorP2: "#7f1d1d",
+        borderP1: "#fecaca",
+        borderP2: "#f87171",
+        coreP1: "#fee2e2",
+        coreP2: "#fde047"
+      },
+      2: {
+        id: 2,
+        title: "STAGE 2/2 · PHANTOM SENTINEL (幻影哨兵)",
+        hpScale: 2.0,
+        poiseMax: 120,
+        colorP1: "#8b5cf6",
+        colorP2: "#4c1d95",
+        borderP1: "#ddd6fe",
+        borderP2: "#c084fc",
+        coreP1: "#ede9fe",
+        coreP2: "#67e8f9"
+      }
+    };
+
+    let currentLevel = 1;
+
+    // 玩家局内强化状态（第1关通关选择后带入第2关）
+    const DEFAULT_UPGRADES = {
+      bulletCount: 1,
+      damageMultiplier: 1,
+      hasWingman: false
+    };
+    let playerUpgrades = { ...DEFAULT_UPGRADES };
+
+    // 金币与商店永久强化状态
+    const DEFAULT_SHOP_STATE = {
+      coins: 0,
+      hasClearSkill: false,
+      bonusAttack: 0,
+      critChance: 0,       // 百分比数值，如 0.5 表示 0.5%
+      attackSpeedBonus: 0, // 百分比数值，如 20 表示 +20%
+      bonusMaxHp: 0,
+      hasGlassCannon: false,
+      hasMagnet: false,
+      hasTwinLaser: false
+    };
+    let shopState = { ...DEFAULT_SHOP_STATE };
+    let isShopOpen = false;
+    let isInMainMenu = true;
+    let stage2Unlocked = false;
+    let isAiBotEnabled = false;
+    let isSimulating = false;
+
+    // =========================================================================
+    // 2. Canvas 与 DOM 引用初始化
+    // =========================================================================
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const ui = {
+      bossTitle: document.getElementById("bossTitle"),
+      bossPhaseTag: document.getElementById("bossPhaseTag"),
+      bossHpFill: document.getElementById("bossHpFill"),
+      bossHpText: document.getElementById("bossHpText"),
+      bossPoiseFill: document.getElementById("bossPoiseFill"),
+      bossPoiseText: document.getElementById("bossPoiseText"),
+      playerHpFill: document.getElementById("playerHpFill"),
+      playerHpText: document.getElementById("playerHpText"),
+      dashCdFill: document.getElementById("dashCdFill"),
+      dashStatusText: document.getElementById("dashStatusText"),
+      playerMpFill: document.getElementById("playerMpFill"),
+      mpStatusText: document.getElementById("mpStatusText"),
+      clearSkillText: document.getElementById("clearSkillText"),
+      hudStatsLine: document.getElementById("hudStatsLine"),
+      hudCoinsText: document.getElementById("hudCoinsText"),
+      menuShopPanel: document.getElementById("menuShopPanel"),
+      shopCoinsText: document.getElementById("shopCoinsText"),
+      shopDescClearSkill: document.getElementById("shopDescClearSkill"),
+      shopDescAtk: document.getElementById("shopDescAtk"),
+      shopDescCrit: document.getElementById("shopDescCrit"),
+      shopDescAspd: document.getElementById("shopDescAspd"),
+      shopDescHp: document.getElementById("shopDescHp"),
+      shopDescGlass: document.getElementById("shopDescGlass"),
+      shopDescMagnet: document.getElementById("shopDescMagnet"),
+      shopDescTwinLaser: document.getElementById("shopDescTwinLaser"),
+      btnToggleBot: document.getElementById("btnToggleBot"),
+      stressTestResult: document.getElementById("stressTestResult"),
+      mainMenuOverlay: document.getElementById("mainMenuOverlay"),
+      menuSummary: document.getElementById("menuSummary"),
+      btnStartStage2: document.getElementById("btnStartStage2"),
+      resultOverlay: document.getElementById("resultOverlay"),
+      resultTitle: document.getElementById("resultTitle"),
+      resultStats: document.getElementById("resultStats"),
+      upgradeSection: document.getElementById("upgradeSection"),
+      btnNextLevel: document.getElementById("btnNextLevel"),
+      btnRestart: document.getElementById("btnRestart")
+    };
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    // =========================================================================
+    // 3. 输入管理 (键盘 + 鼠标)
+    // =========================================================================
+    const keys = {};
+    const mouse = { x: canvas.width / 2, y: 120, isDown: false, hasMoved: false };
+
+    window.addEventListener("keydown", (e) => {
+      keys[e.code] = true;
+      if (e.code === "Space") {
+        e.preventDefault();
+        tryTriggerDash();
+      } else if (e.code === "KeyE") {
+        tryTriggerClearBullets();
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      keys[e.code] = false;
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouse.hasMoved = true;
+    });
+
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
+
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button === 0) {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        mouse.isDown = true;
+      } else if (e.button === 2) {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        tryTriggerPlayerLaser(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) mouse.isDown = false;
+    });
+
+    // =========================================================================
+    // 4. 游戏核心状态机与实体
+    // =========================================================================
+    const BOSS_PHASE = {
+      PHASE_1: 1, // 弹幕压制
+      PHASE_2: 2  // 狂暴追踪
+    };
+
+    let gameState = null;
+
+    function createInitialState(level = currentLevel) {
+      const lvlCfg = LEVEL_CONFIGS[level] || LEVEL_CONFIGS[1];
+      const bossHp = Math.round(CONFIG.bossMaxHp * lvlCfg.hpScale);
+      const rawMaxHp = CONFIG.playerMaxHp + shopState.bonusMaxHp;
+      const totalPlayerMaxHp = Math.max(10, Math.round(rawMaxHp * (shopState.hasGlassCannon ? 0.7 : 1.0)));
+
+      return {
+        level: lvlCfg.id,
+        isOver: false,
+        result: null, // "win" | "lose"
+        elapsedTime: 0,
+        timeScale: 1.0,
+        timeScaleTimer: 0,
+        combo: 0,
+        maxCombo: 0,
+        totalDamageDealt: 0,
+        stunCount: 0,
+        damageTakenCount: 0,
+        dodgedByDashCount: 0,
+        justDodgeCount: 0,
+        shakeTimer: 0,
+        shakeMagnitude: 0,
+        bannerText: `STAGE ${lvlCfg.id} START!`,
+        bannerTimer: 1.5,
+
+        player: {
+          x: canvas.width / 2,
+          y: canvas.height * 0.75,
+          hp: totalPlayerMaxHp,
+          maxHp: totalPlayerMaxHp,
+          mp: 0,
+          maxMp: CONFIG.playerMaxMp,
+          vx: 0,
+          vy: 0,
+          lastDirX: 0,
+          lastDirY: -1,
+          fireTimer: 0,
+          dashTimer: 0,
+          dashInvulnTimer: 0,
+          dashCdTimer: 0,
+          clearSkillCdTimer: 0,
+          clearWave: null,
+          hitFlashTimer: 0,
+          hasShield: false,
+          laserBeam: null,
+          wingman: {
+            x: canvas.width / 2 - 28,
+            y: canvas.height * 0.75 + 18,
+            fireTimer: 0,
+            orbitAngle: 0
+          },
+          afterimages: []
+        },
+
+        boss: {
+          x: canvas.width / 2,
+          y: 130,
+          hp: bossHp,
+          maxHp: bossHp,
+          poise: lvlCfg.poiseMax,
+          maxPoise: lvlCfg.poiseMax,
+          timeSinceLastHit: 0,
+          stunTimer: 0,
+          phase: BOSS_PHASE.PHASE_1,
+          hitFlashTimer: 0,
+          pulseAngle: 0,
+
+          // Phase 1 计时器
+          ringTimer: 1.2,
+          fanTimer: 0.6,
+          teleportTimer: 2.8, // 第2关瞬移计时
+
+          // Phase 2 计时器与螺旋角度
+          spiralTimer: 0.2,
+          spiralAngle: 0,
+          meteorTimer: 0.8,   // 二阶段陨石计时
+
+          // Phase 2 激光状态机: "charging" -> "warning" -> "firing"
+          laserState: "charging",
+          laserTimer: CONFIG.p2LaserChargeTime,
+          laserAngles: [Math.PI / 2],
+          laserHitApplied: false
+        },
+
+        playerBullets: [],
+        bossBullets: [],
+        phantoms: [],
+        meteors: [],
+        pickups: [],
+        floatingTexts: [],
+        particles: []
+      };
+    }
+
+    function resetGame(level = currentLevel, resetUpgrades = (level === 1), customBanner = "") {
+      currentLevel = level;
+      isInMainMenu = false;
+      document.body.classList.remove("in-menu");
+      ui.mainMenuOverlay.classList.remove("visible");
+      mouse.isDown = false;
+      if (resetUpgrades) {
+        playerUpgrades = { ...DEFAULT_UPGRADES };
+      }
+      ui.upgradeSection.classList.remove("visible");
+      ui.resultOverlay.classList.remove("visible");
+      gameState = createInitialState(currentLevel);
+      if (customBanner) {
+        gameState.bannerText = customBanner;
+        gameState.bannerTimer = 2.0;
+      }
+      syncHud();
+    }
+
+    function enterMainMenu() {
+      isInMainMenu = true;
+      mouse.isDown = false;
+      document.body.classList.add("in-menu");
+      ui.resultOverlay.classList.remove("visible");
+      ui.upgradeSection.classList.remove("visible");
+      ui.mainMenuOverlay.classList.add("visible");
+      syncMenuUi();
+      syncShopUi();
+    }
+
+    function syncMenuUi() {
+      const rawMaxHp = CONFIG.playerMaxHp + shopState.bonusMaxHp;
+      const totalHp = Math.max(10, Math.round(rawMaxHp * (shopState.hasGlassCannon ? 0.7 : 1.0)));
+      const skillText = shopState.hasClearSkill ? "已解锁 (E键)" : "未解锁";
+      const extraTags = [
+        shopState.hasGlassCannon ? "玻璃大炮" : "",
+        shopState.hasMagnet ? "磁力核心" : "",
+        shopState.hasTwinLaser ? "双生激光" : ""
+      ].filter(Boolean);
+      const tagStr = extraTags.length > 0 ? ` · 特殊词条：${extraTags.join(" / ")}` : "";
+
+      ui.menuSummary.innerHTML = `
+        <strong style="color:#facc15;">💰 当前金币：${shopState.coins}</strong> · 生命上限：${totalHp} · 攻击加成：+${shopState.bonusAttack}<br/>
+        暴击率：${shopState.critChance.toFixed(1)}% · 攻速加成：+${shopState.attackSpeedBonus}% · 清弹技能：${skillText}${tagStr}
+      `;
+      ui.btnStartStage2.style.display = stage2Unlocked ? "block" : "none";
+    }
+
+    // =========================================================================
+    // 5. 玩家控制与冲刺逻辑
+    // =========================================================================
+    function tryTriggerDash() {
+      if (!gameState || gameState.isOver) return;
+      const p = gameState.player;
+      if (p.dashCdTimer > 0 || p.dashTimer > 0) return;
+
+      p.dashTimer = CONFIG.dashDuration;
+      p.dashInvulnTimer = CONFIG.dashInvulnDuration;
+      p.dashCdTimer = CONFIG.dashCooldown;
+
+      // 生成冲刺爆发粒子
+      spawnParticles(p.x, p.y, "#60a5fa", 10, 3.2);
+    }
+
+    function tryTriggerClearBullets() {
+      if (!gameState || gameState.isOver || isShopOpen) return;
+      if (!shopState.hasClearSkill) {
+        showBanner("⚠ 尚未在商店解锁【清除周围弹幕】技能 (按B打开商店)", 1.3);
+        return;
+      }
+      const p = gameState.player;
+      if (p.clearSkillCdTimer > 0) return;
+
+      p.clearSkillCdTimer = CONFIG.clearSkillCooldown;
+      p.clearWave = {
+        x: p.x,
+        y: p.y,
+        maxRadius: CONFIG.clearSkillRadius,
+        timer: 0.32,
+        maxTimer: 0.32
+      };
+
+      let cleared = 0;
+      for (let i = gameState.bossBullets.length - 1; i >= 0; i--) {
+        const bb = gameState.bossBullets[i];
+        if (Math.hypot(bb.x - p.x, bb.y - p.y) <= CONFIG.clearSkillRadius) {
+          spawnParticles(bb.x, bb.y, "#38bdf8", 4, 2.2);
+          gameState.bossBullets.splice(i, 1);
+          cleared++;
+        }
+      }
+      triggerScreenShake(5, 0.16);
+      showBanner(`🌊 清弹冲击波：已清除周围 ${cleared} 发弹幕！`, 1.2);
+      syncHud();
+    }
+
+    function tryTriggerPlayerLaser(targetX, targetY) {
+      if (!gameState || gameState.isOver) return;
+      const p = gameState.player;
+      const b = gameState.boss;
+      if (p.mp < CONFIG.playerLaserCost) return;
+
+      // 购买双生激光且攒满10 MP时释放10MP强化双生激光；否则保留5MP普通激光
+      const isTwinStrike = shopState.hasTwinLaser && p.mp >= p.maxMp;
+      const laserCost = isTwinStrike ? p.maxMp : CONFIG.playerLaserCost;
+
+      p.mp = Math.max(0, p.mp - laserCost);
+      const angle = Math.atan2(targetY - p.y, targetX - p.x);
+      p.laserBeam = {
+        x: p.x,
+        y: p.y,
+        angle,
+        isTwin: isTwinStrike,
+        timer: CONFIG.playerLaserDuration
+      };
+
+      triggerScreenShake(isTwinStrike ? 9 : 6, 0.22);
+      spawnParticles(p.x + Math.cos(angle) * 20, p.y + Math.sin(angle) * 20, isTwinStrike ? "#facc15" : "#67e8f9", 16, 4.5);
+
+      // 射线命中判定（射线方向前方且距离 <= 激光半宽 + Boss半径）
+      const dx = b.x - p.x;
+      const dy = b.y - p.y;
+      const forwardDot = dx * Math.cos(angle) + dy * Math.sin(angle);
+      const bossHalf = CONFIG.bossSize / 2;
+      if (forwardDot > -bossHalf) {
+        const perpDist = pointToLineDistance(b.x, b.y, p.x, p.y, angle);
+        const laserHalfWidth = isTwinStrike ? 24 : 16;
+        if (perpDist <= laserHalfWidth + bossHalf) {
+          const baseLaserDmg = isTwinStrike ? 120 : CONFIG.playerLaserDamage;
+          let extraPoiseDmg = CONFIG.bossPoiseDamagePerHit;
+          if (isTwinStrike && b.poise > 0) {
+            extraPoiseDmg = b.poise < 30 ? b.poise : b.poise * 0.5;
+          }
+          damageBoss(baseLaserDmg * playerUpgrades.damageMultiplier, b.x, b.y, extraPoiseDmg);
+        }
+      }
+      if (!isSimulating) syncHud();
+    }
+
+    function getBotControls() {
+      const p = gameState.player;
+      const b = gameState.boss;
+      let moveX = 0;
+      let moveY = 0;
+      let nearestBulletDist = Infinity;
+      let nearbyBulletCount = 0;
+
+      // 躲避 Boss 弹幕
+      for (const bb of gameState.bossBullets) {
+        const dx = p.x - bb.x;
+        const dy = p.y - bb.y;
+        const d = Math.hypot(dx, dy);
+        if (d < nearestBulletDist) nearestBulletDist = d;
+        if (d < 160 && d > 0.1) {
+          const weight = (160 - d) / 160;
+          moveX += (dx / d) * weight * 2.2;
+          moveY += (dy / d) * weight * 2.2;
+        }
+        if (d < 200) nearbyBulletCount++;
+      }
+
+      // 躲避陨石预警圈
+      for (const m of gameState.meteors) {
+        const dx = p.x - m.x;
+        const dy = p.y - m.y;
+        const d = Math.hypot(dx, dy);
+        if (d < m.radius + 45 && d > 0.1) {
+          moveX += (dx / d) * 3.0;
+          moveY += (dy / d) * 3.0;
+        }
+      }
+
+      // 保持与 Boss 的安全拉扯距离
+      const bdx = p.x - b.x;
+      const bdy = p.y - b.y;
+      const bDist = Math.hypot(bdx, bdy);
+      if (bDist < 200 && bDist > 0.1) {
+        moveX += (bdx / bDist) * 1.4;
+        moveY += (bdy / bDist) * 1.4;
+      } else if (bDist > 380 && bDist > 0.1) {
+        moveX -= (bdx / bDist) * 0.6;
+        moveY -= (bdy / bDist) * 0.6;
+      }
+
+      // 向中心轻微回归，避免贴死角落
+      moveX += (canvas.width / 2 - p.x) * 0.0018;
+      moveY += (canvas.height * 0.65 - p.y) * 0.0018;
+
+      // 危险时自动冲刺或清弹
+      if (nearestBulletDist < 42 && p.dashCdTimer <= 0 && p.dashTimer <= 0) {
+        tryTriggerDash();
+      }
+      if (shopState.hasClearSkill && p.clearSkillCdTimer <= 0 && nearbyBulletCount >= 6) {
+        tryTriggerClearBullets();
+      }
+
+      if (p.mp >= CONFIG.playerLaserCost) {
+        tryTriggerPlayerLaser(b.x, b.y);
+      }
+
+      return { moveX, moveY, aimX: b.x, aimY: b.y, firing: true };
+    }
+
+    function updatePlayer(dt) {
+      const p = gameState.player;
+
+      if (p.hitFlashTimer > 0) p.hitFlashTimer = Math.max(0, p.hitFlashTimer - dt);
+      if (p.dashTimer > 0) p.dashTimer = Math.max(0, p.dashTimer - dt);
+      if (p.dashInvulnTimer > 0) p.dashInvulnTimer = Math.max(0, p.dashInvulnTimer - dt);
+      if (p.dashCdTimer > 0) p.dashCdTimer = Math.max(0, p.dashCdTimer - dt);
+      if (p.clearSkillCdTimer > 0) p.clearSkillCdTimer = Math.max(0, p.clearSkillCdTimer - dt);
+      if (p.clearWave) {
+        p.clearWave.timer -= dt;
+        if (p.clearWave.timer <= 0) p.clearWave = null;
+      }
+      if (p.laserBeam) {
+        p.laserBeam.timer -= dt;
+        if (p.laserBeam.timer <= 0) p.laserBeam = null;
+      }
+
+      // 读取移动输入 (人工输入 或 AI 托管 Bot)
+      let moveX = 0;
+      let moveY = 0;
+      let aimX = mouse.x;
+      let aimY = mouse.y;
+      let isFiring = mouse.isDown;
+
+      if (isAiBotEnabled || isSimulating) {
+        const bot = getBotControls();
+        moveX = bot.moveX;
+        moveY = bot.moveY;
+        aimX = bot.aimX;
+        aimY = bot.aimY;
+        isFiring = bot.firing;
+      } else {
+        if (keys["KeyW"] || keys["ArrowUp"]) moveY -= 1;
+        if (keys["KeyS"] || keys["ArrowDown"]) moveY += 1;
+        if (keys["KeyA"] || keys["ArrowLeft"]) moveX -= 1;
+        if (keys["KeyD"] || keys["ArrowRight"]) moveX += 1;
+      }
+
+      if (moveX !== 0 || moveY !== 0) {
+        const len = Math.hypot(moveX, moveY);
+        moveX /= len;
+        moveY /= len;
+        p.lastDirX = moveX;
+        p.lastDirY = moveY;
+      }
+
+      // 冲刺期间沿输入方向（若无输入则沿最后朝向）高速位移
+      const isDashing = p.dashTimer > 0;
+      const speedScale = isDashing ? CONFIG.dashSpeedMultiplier : 1;
+      const dirX = isDashing && moveX === 0 && moveY === 0 ? p.lastDirX : moveX;
+      const dirY = isDashing && moveX === 0 && moveY === 0 ? p.lastDirY : moveY;
+
+      const frameSpeed = CONFIG.playerSpeed * speedScale * (dt * 60);
+      p.x += dirX * frameSpeed;
+      p.y += dirY * frameSpeed;
+
+      // 边界限制
+      const pad = CONFIG.playerRadius + 8;
+      p.x = Math.max(pad, Math.min(canvas.width - pad, p.x));
+      p.y = Math.max(pad + 60, Math.min(canvas.height - pad, p.y));
+
+      // 记录冲刺残影
+      if (isDashing) {
+        p.afterimages.push({ x: p.x, y: p.y, alpha: 0.45 });
+      }
+      for (let i = p.afterimages.length - 1; i >= 0; i--) {
+        p.afterimages[i].alpha -= dt * 2.2;
+        if (p.afterimages[i].alpha <= 0) p.afterimages.splice(i, 1);
+      }
+
+      // 玩家攻击：仅在鼠标点击或长按左键时朝鼠标方向发射弹幕（支持多弹道、商店攻击力与攻速加成）
+      if (p.fireTimer > 0) {
+        p.fireTimer = Math.max(0, p.fireTimer - dt);
+      }
+      const baseAtk = CONFIG.playerBulletDamage + shopState.bonusAttack;
+      const mainBulletDamage = baseAtk * playerUpgrades.damageMultiplier;
+      const effectiveFireInterval = CONFIG.playerFireInterval / (1 + shopState.attackSpeedBonus / 100);
+      if (isFiring && p.fireTimer <= 0) {
+        p.fireTimer = effectiveFireInterval;
+        const baseAngle = Math.atan2(aimY - p.y, aimX - p.x);
+        const count = playerUpgrades.bulletCount;
+        const spreadStep = 0.12;
+        const half = (count - 1) / 2;
+
+        for (let i = 0; i < count; i++) {
+          const angle = baseAngle + (i - half) * spreadStep;
+          gameState.playerBullets.push({
+            x: p.x + Math.cos(angle) * 14,
+            y: p.y + Math.sin(angle) * 14,
+            vx: Math.cos(angle) * CONFIG.playerBulletSpeed,
+            vy: Math.sin(angle) * CONFIG.playerBulletSpeed,
+            radius: 4.5,
+            damage: mainBulletDamage,
+            isHoming: false,
+            color: "#7dd3fc"
+          });
+        }
+      }
+
+      // 自动追踪僚机逻辑（伤害为本机的 50%）
+      if (playerUpgrades.hasWingman) {
+        const w = p.wingman;
+        w.orbitAngle += dt * 3.0;
+        const targetWx = p.x + Math.cos(w.orbitAngle) * 32;
+        const targetWy = p.y + Math.sin(w.orbitAngle) * 32;
+        w.x += (targetWx - w.x) * Math.min(1, dt * 12);
+        w.y += (targetWy - w.y) * Math.min(1, dt * 12);
+
+        w.fireTimer -= dt;
+        if (w.fireTimer <= 0) {
+          w.fireTimer = 0.24;
+          const b = gameState.boss;
+          const angle = Math.atan2(b.y - w.y, b.x - w.x);
+          gameState.playerBullets.push({
+            x: w.x,
+            y: w.y,
+            vx: Math.cos(angle) * (CONFIG.playerBulletSpeed * 0.85),
+            vy: Math.sin(angle) * (CONFIG.playerBulletSpeed * 0.85),
+            radius: 4.5,
+            damage: mainBulletDamage * 0.5,
+            isHoming: true,
+            shape: "diamond",
+            color: "#ef4444"
+          });
+        }
+      }
+    }
+
+    // =========================================================================
+    // 6. Boss AI 双阶段状态机
+    // =========================================================================
+    function updateBoss(dt) {
+      const b = gameState.boss;
+      const p = gameState.player;
+
+      if (b.hitFlashTimer > 0) b.hitFlashTimer = Math.max(0, b.hitFlashTimer - dt);
+
+      // 未受击计时：5秒未受到攻击时，韧性条恢复满
+      b.timeSinceLastHit += dt;
+      if (b.stunTimer <= 0 && b.poise < b.maxPoise && b.timeSinceLastHit >= CONFIG.bossPoiseResetDelay) {
+        b.poise = b.maxPoise;
+      }
+
+      // 眩晕状态：无法移动与攻击，眩晕结束后恢复满韧性
+      if (b.stunTimer > 0) {
+        b.stunTimer = Math.max(0, b.stunTimer - dt);
+        if (b.stunTimer === 0) {
+          b.poise = b.maxPoise;
+        }
+        return;
+      }
+
+      b.pulseAngle += dt * 2.5;
+
+      // 检查是否进入 Phase 2 (HP 50% 以下)
+      if (b.phase === BOSS_PHASE.PHASE_1 && b.hp <= b.maxHp * CONFIG.bossPhase2Threshold) {
+        b.phase = BOSS_PHASE.PHASE_2;
+        b.laserState = "charging";
+        b.laserTimer = CONFIG.p2LaserChargeTime;
+        triggerScreenShake(10, 0.35);
+        showBanner(
+          gameState.level === 2
+            ? "⚠ 幻影哨兵进入狂暴双激光阶段 (PHASE 2) ⚠"
+            : "⚠ BOSS 进入狂暴追踪阶段 (PHASE 2) ⚠",
+          2.0
+        );
+        spawnParticles(b.x, b.y, gameState.level === 2 ? "#c084fc" : "#ef4444", 26, 5);
+      }
+
+      if (gameState.level === 2) {
+        updatePhantoms(dt);
+        updateBossStage2(dt);
+        return;
+      }
+
+      if (b.phase === BOSS_PHASE.PHASE_1) {
+        // Phase 1: 弹幕压制（定点）
+        // 1) 每隔 2 秒全方位发射环形弹幕
+        b.ringTimer -= dt;
+        if (b.ringTimer <= 0) {
+          b.ringTimer = CONFIG.p1RingInterval;
+          spawnRingBarrage(b.x, b.y, CONFIG.p1RingCount, CONFIG.bulletSpeed, "#fb7185");
+        }
+
+        // 2) 每隔 1 秒向玩家方向扇形发射 3 颗高速子弹
+        b.fanTimer -= dt;
+        if (b.fanTimer <= 0) {
+          b.fanTimer = CONFIG.p1FanInterval;
+          const baseAngle = Math.atan2(p.y - b.y, p.x - b.x);
+          spawnFanBarrage(b.x, b.y, baseAngle, 3, 0.22, CONFIG.bulletSpeed * CONFIG.p1FanSpeedMultiplier, "#facc15");
+        }
+      } else {
+        // Phase 2: 狂暴追踪
+        // 1) 恒定速度缓慢向玩家当前位置移动
+        const dx = p.x - b.x;
+        const dy = p.y - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 4) {
+          const step = CONFIG.bossSpeed * (dt * 60);
+          b.x += (dx / dist) * step;
+          b.y += (dy / dist) * step;
+        }
+
+        // 2) 取消环形弹幕，改为每 0.5 秒以 Boss 为中心向外螺旋发射高密度子弹
+        b.spiralTimer -= dt;
+        if (b.spiralTimer <= 0) {
+          b.spiralTimer = CONFIG.p2SpiralInterval;
+          b.spiralAngle += 0.38;
+          spawnSpiralBarrage(b.x, b.y, CONFIG.p2SpiralArms, b.spiralAngle, CONFIG.bulletSpeed * 1.05);
+        }
+
+        // 3) 蓄力 3 秒 -> 预警 1 秒 -> 激光横穿屏幕造成高额伤害
+        updateBossLaser(dt);
+
+        // 4) 二阶段狂暴状态下地图随机掉落陨石
+        updateBossMeteors(dt);
+      }
+    }
+
+    function updateBossMeteors(dt) {
+      const b = gameState.boss;
+      const p = gameState.player;
+      b.meteorTimer -= dt;
+      if (b.meteorTimer <= 0) {
+        b.meteorTimer = CONFIG.meteorSpawnInterval;
+        const margin = 65;
+        let mx, my;
+        if (Math.random() < 0.45) {
+          // 45% 概率在玩家附近区域生成，增加走位压迫感
+          mx = Math.max(margin, Math.min(canvas.width - margin, p.x + (Math.random() - 0.5) * 240));
+          my = Math.max(100, Math.min(canvas.height - margin, p.y + (Math.random() - 0.5) * 240));
+        } else {
+          mx = margin + Math.random() * Math.max(40, canvas.width - margin * 2);
+          my = 100 + Math.random() * Math.max(40, canvas.height - 160);
+        }
+        gameState.meteors.push({
+          x: mx,
+          y: my,
+          radius: CONFIG.meteorRadius,
+          timer: CONFIG.meteorWarningTime,
+          maxTimer: CONFIG.meteorWarningTime
+        });
+      }
+    }
+
+    function updateBossStage2(dt) {
+      const b = gameState.boss;
+      const p = gameState.player;
+
+      if (b.phase === BOSS_PHASE.PHASE_1) {
+        // 第2关 Phase 1: 定期瞬移闪现 + 交叉散射弹幕
+        b.teleportTimer -= dt;
+        if (b.teleportTimer <= 0) {
+          b.teleportTimer = 3.5;
+          teleportBoss(p);
+          spawnRingBarrage(b.x, b.y, 12, CONFIG.bulletSpeed * 1.15, "#c084fc");
+        }
+
+        b.fanTimer -= dt;
+        if (b.fanTimer <= 0) {
+          b.fanTimer = 1.2;
+          const baseAngle = Math.atan2(p.y - b.y, p.x - b.x);
+          spawnFanBarrage(b.x, b.y, baseAngle, 5, 0.2, CONFIG.bulletSpeed * 1.35, "#38bdf8");
+        }
+      } else {
+        // 第2关 Phase 2: 高速追踪 + 突袭瞬移 + 双螺旋弹幕 + 双道交叉激光
+        const dx = p.x - b.x;
+        const dy = p.y - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 4) {
+          const step = CONFIG.bossSpeed * 1.25 * (dt * 60);
+          b.x += (dx / dist) * step;
+          b.y += (dy / dist) * step;
+        }
+
+        b.teleportTimer -= dt;
+        if (b.teleportTimer <= 0) {
+          b.teleportTimer = 4.5;
+          teleportBoss(p);
+        }
+
+        b.spiralTimer -= dt;
+        if (b.spiralTimer <= 0) {
+          b.spiralTimer = 0.45;
+          b.spiralAngle += 0.42;
+          spawnSpiralBarrage(b.x, b.y, 4, b.spiralAngle, CONFIG.bulletSpeed * 1.1);
+          spawnSpiralBarrage(b.x, b.y, 4, -b.spiralAngle + Math.PI / 4, CONFIG.bulletSpeed * 0.9);
+        }
+
+        updateBossLaser(dt);
+        updateBossMeteors(dt);
+      }
+    }
+
+    function updatePhantoms(dt) {
+      const p = gameState.player;
+      for (let i = gameState.phantoms.length - 1; i >= 0; i--) {
+        const ph = gameState.phantoms[i];
+        ph.life -= dt;
+        if (ph.life <= 0) {
+          gameState.phantoms.splice(i, 1);
+          continue;
+        }
+        ph.fireTimer -= dt;
+        if (ph.fireTimer <= 0) {
+          ph.fireTimer = 1.0;
+          const baseAngle = Math.atan2(p.y - ph.y, p.x - ph.x);
+          spawnFanBarrage(ph.x, ph.y, baseAngle, 3, 0.25, CONFIG.bulletSpeed * 0.95, "#a855f7");
+        }
+      }
+    }
+
+    function teleportBoss(player) {
+      const b = gameState.boss;
+      spawnParticles(b.x, b.y, "#a855f7", 18, 4);
+
+      // 第2关瞬移后在原地留下持续3秒的半透明幻影分身
+      if (gameState.level === 2) {
+        gameState.phantoms.push({
+          x: b.x,
+          y: b.y,
+          life: 3.0,
+          maxLife: 3.0,
+          fireTimer: 0.7
+        });
+      }
+
+      const margin = 90;
+      let nextX = b.x;
+      let nextY = b.y;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const cx = margin + Math.random() * Math.max(100, canvas.width - margin * 2);
+        const cy = 110 + Math.random() * Math.max(100, canvas.height * 0.55);
+        if (Math.hypot(cx - player.x, cy - player.y) >= 180) {
+          nextX = cx;
+          nextY = cy;
+          break;
+        }
+      }
+      b.x = nextX;
+      b.y = nextY;
+      spawnParticles(b.x, b.y, "#e879f9", 18, 4);
+    }
+
+    function updateBossLaser(dt) {
+      const b = gameState.boss;
+      const p = gameState.player;
+
+      b.laserTimer -= dt;
+
+      if (b.laserState === "charging") {
+        // 蓄力阶段结束，锁定当前玩家方向并进入 1 秒预警
+        if (b.laserTimer <= 0) {
+          b.laserState = "warning";
+          b.laserTimer = CONFIG.p2LaserWarningTime;
+          const baseAngle = Math.atan2(p.y - b.y, p.x - b.x);
+          b.laserAngles =
+            gameState.level === 2
+              ? [baseAngle - 0.36, baseAngle + 0.36]
+              : [baseAngle];
+          b.laserHitApplied = false;
+        }
+      } else if (b.laserState === "warning") {
+        if (b.laserTimer <= 0) {
+          b.laserState = "firing";
+          b.laserTimer = CONFIG.p2LaserActiveTime;
+          triggerScreenShake(9, 0.25);
+        }
+      } else if (b.laserState === "firing") {
+        // 激光伤害判定（点到直线距离）
+        if (!b.laserHitApplied) {
+          const laserHalfWidth = 18;
+          const isHit = b.laserAngles.some(
+            (angle) => pointToLineDistance(p.x, p.y, b.x, b.y, angle) <= laserHalfWidth + CONFIG.playerRadius
+          );
+          if (isHit) {
+            damagePlayer(CONFIG.p2LaserDamage);
+            b.laserHitApplied = true;
+          }
+        }
+
+        if (b.laserTimer <= 0) {
+          b.laserState = "charging";
+          b.laserTimer = CONFIG.p2LaserChargeTime;
+        }
+      }
+    }
+
+    function spawnRingBarrage(x, y, count, speed, color) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count;
+        gameState.bossBullets.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 6,
+          color
+        });
+      }
+    }
+
+    function spawnFanBarrage(x, y, centerAngle, count, spread, speed, color) {
+      const half = (count - 1) / 2;
+      for (let i = 0; i < count; i++) {
+        const angle = centerAngle + (i - half) * spread;
+        gameState.bossBullets.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 6.5,
+          color
+        });
+      }
+    }
+
+    function spawnSpiralBarrage(x, y, arms, baseAngle, speed) {
+      for (let i = 0; i < arms; i++) {
+        const angle = baseAngle + (Math.PI * 2 * i) / arms;
+        gameState.bossBullets.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 5.5,
+          color: "#f97316"
+        });
+      }
+    }
+
+    // =========================================================================
+    // 7. 子弹更新、碰撞与战斗反馈
+    // =========================================================================
+    function updateBulletsAndCollisions(dt) {
+      const p = gameState.player;
+      const b = gameState.boss;
+      const frameScale = dt * 60;
+      const bossHalf = CONFIG.bossSize / 2;
+
+      // 更新玩家子弹并检测是否击中 Boss
+      for (let i = gameState.playerBullets.length - 1; i >= 0; i--) {
+        const pb = gameState.playerBullets[i];
+
+        // 僚机追踪弹自动转向 Boss
+        if (pb.isHoming) {
+          const desiredAngle = Math.atan2(b.y - pb.y, b.x - pb.x);
+          const speed = Math.hypot(pb.vx, pb.vy);
+          const curAngle = Math.atan2(pb.vy, pb.vx);
+          let diff = desiredAngle - curAngle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const nextAngle = curAngle + Math.max(-0.14, Math.min(0.14, diff));
+          pb.vx = Math.cos(nextAngle) * speed;
+          pb.vy = Math.sin(nextAngle) * speed;
+        }
+
+        pb.x += pb.vx * frameScale;
+        pb.y += pb.vy * frameScale;
+
+        // 飞出屏幕移除
+        if (pb.x < -30 || pb.x > canvas.width + 30 || pb.y < -30 || pb.y > canvas.height + 30) {
+          gameState.playerBullets.splice(i, 1);
+          continue;
+        }
+
+        // AABB 碰撞检测（玩家圆形子弹 vs Boss 方块）
+        if (
+          pb.x + pb.radius > b.x - bossHalf &&
+          pb.x - pb.radius < b.x + bossHalf &&
+          pb.y + pb.radius > b.y - bossHalf &&
+          pb.y - pb.radius < b.y + bossHalf
+        ) {
+          gameState.playerBullets.splice(i, 1);
+          damageBoss(
+            pb.damage ?? CONFIG.playerBulletDamage,
+            pb.x,
+            pb.y,
+            pb.poiseDamage ?? CONFIG.bossPoiseDamagePerHit
+          );
+          if (gameState.isOver) return;
+        }
+      }
+
+      // 更新 Boss 子弹并检测是否击中玩家
+      for (let i = gameState.bossBullets.length - 1; i >= 0; i--) {
+        const bb = gameState.bossBullets[i];
+        bb.x += bb.vx * frameScale;
+        bb.y += bb.vy * frameScale;
+
+        if (bb.x < -40 || bb.x > canvas.width + 40 || bb.y < -40 || bb.y > canvas.height + 40) {
+          gameState.bossBullets.splice(i, 1);
+          continue;
+        }
+
+        const dist = Math.hypot(bb.x - p.x, bb.y - p.y);
+        if (dist < bb.radius + CONFIG.playerRadius) {
+          if (p.dashInvulnTimer > 0) {
+            // 冲刺无敌帧闪避成功并积累 MP；前0.12s内判定为“完美闪避”
+            gameState.bossBullets.splice(i, 1);
+            gameState.dodgedByDashCount++;
+            const dashElapsed = CONFIG.dashInvulnDuration - p.dashInvulnTimer;
+            const isJustDodge = dashElapsed <= CONFIG.justDodgeWindow;
+
+            if (isJustDodge) {
+              gameState.justDodgeCount++;
+              gameState.timeScaleTimer = CONFIG.justDodgeSlowDuration;
+              gameState.timeScale = CONFIG.justDodgeTimeScale;
+              p.mp = Math.min(p.maxMp, p.mp + 2);
+              spawnFloatingText(p.x, p.y - 22, "JUST DODGE!", "#c084fc", 1.2);
+              spawnParticles(bb.x, bb.y, "#c084fc", 12, 3.8);
+
+              // 发射追踪反击波，直接削减 Boss 10 点韧性
+              const counterAngle = Math.atan2(b.y - p.y, b.x - p.x);
+              gameState.playerBullets.push({
+                x: p.x,
+                y: p.y,
+                vx: Math.cos(counterAngle) * (CONFIG.playerBulletSpeed * 1.1),
+                vy: Math.sin(counterAngle) * (CONFIG.playerBulletSpeed * 1.1),
+                radius: 6,
+                damage: 10 * playerUpgrades.damageMultiplier,
+                poiseDamage: CONFIG.justDodgePoiseDamage,
+                isHoming: true,
+                shape: "diamond",
+                color: "#c084fc"
+              });
+            } else {
+              if (p.mp < p.maxMp) {
+                p.mp = Math.min(p.maxMp, p.mp + 1);
+              }
+              spawnParticles(bb.x, bb.y, "#22d3ee", 6, 2.8);
+            }
+
+            if (p.mp === CONFIG.playerLaserCost) {
+              showBanner("⚡ MP 已达 5 点！右键可释放激光攻击 ⚡", 1.3);
+            } else if (p.mp === p.maxMp) {
+              showBanner("⚡ MP 已满 (10/10)！可连续释放两次激光 ⚡", 1.3);
+            }
+          } else {
+            gameState.bossBullets.splice(i, 1);
+            damagePlayer(CONFIG.bulletDamage);
+            if (gameState.isOver) return;
+          }
+        }
+      }
+
+      // Boss 本体与玩家碰撞检测
+      const closestX = Math.max(b.x - bossHalf, Math.min(p.x, b.x + bossHalf));
+      const closestY = Math.max(b.y - bossHalf, Math.min(p.y, b.y + bossHalf));
+      if (Math.hypot(p.x - closestX, p.y - closestY) < CONFIG.playerRadius) {
+        if (p.dashInvulnTimer <= 0 && p.hitFlashTimer <= 0) {
+          damagePlayer(CONFIG.bulletDamage);
+        }
+      }
+
+      // 二阶段陨石预警更新与砸落爆炸判定
+      for (let i = gameState.meteors.length - 1; i >= 0; i--) {
+        const m = gameState.meteors[i];
+        m.timer -= dt;
+        if (m.timer <= 0) {
+          gameState.meteors.splice(i, 1);
+          triggerScreenShake(5.5, 0.16);
+          spawnParticles(m.x, m.y, "#f97316", 22, 5.0);
+          spawnParticles(m.x, m.y, "#fde047", 10, 3.2);
+          if (Math.hypot(p.x - m.x, p.y - m.y) <= m.radius + CONFIG.playerRadius) {
+            damagePlayer(CONFIG.meteorDamage);
+            if (gameState.isOver) return;
+          }
+        }
+      }
+
+      // 掉落物更新与玩家拾取检测（支持磁力核心全图吸附）
+      for (let i = gameState.pickups.length - 1; i >= 0; i--) {
+        const item = gameState.pickups[i];
+        item.bobPhase += dt * 4;
+        item.life -= dt;
+        if (item.life <= 0) {
+          gameState.pickups.splice(i, 1);
+          continue;
+        }
+
+        if (shopState.hasMagnet) {
+          const mdx = p.x - item.x;
+          const mdy = p.y - item.y;
+          const mDist = Math.hypot(mdx, mdy);
+          if (mDist > 1) {
+            const pull = 340 * dt;
+            item.x += (mdx / mDist) * pull;
+            item.y += (mdy / mDist) * pull;
+          }
+        }
+
+        if (Math.hypot(item.x - p.x, item.y - p.y) < item.radius + CONFIG.playerRadius) {
+          gameState.pickups.splice(i, 1);
+          if (item.type === "heal") {
+            const healAmount = Math.round(p.maxHp * 0.2);
+            p.hp = Math.min(p.maxHp, p.hp + healAmount);
+            spawnParticles(p.x, p.y, "#4ade80", 14, 3.5);
+            showBanner(`💚 拾取血包：回复 ${healAmount} HP (20%)`, 1.4);
+          } else if (item.type === "shield") {
+            p.hasShield = true;
+            spawnParticles(p.x, p.y, "#22d3ee", 14, 3.5);
+            showBanner("🛡 拾取护盾：可抵挡一次伤害！", 1.4);
+          }
+        }
+      }
+    }
+
+    function damagePlayer(amount) {
+      const p = gameState.player;
+      if (p.dashInvulnTimer > 0 || gameState.isOver) return;
+
+      // 若玩家拥有护盾，抵挡本次伤害
+      if (p.hasShield) {
+        p.hasShield = false;
+        p.hitFlashTimer = CONFIG.hitFlashDuration;
+        triggerScreenShake(4, 0.14);
+        spawnParticles(p.x, p.y, "#22d3ee", 18, 4.5);
+        showBanner("🛡 护盾抵挡了一次伤害！", 1.1);
+        return;
+      }
+
+      p.hp = Math.max(0, p.hp - amount);
+      p.hitFlashTimer = CONFIG.hitFlashDuration;
+      gameState.damageTakenCount++;
+      gameState.combo = 0;
+
+      triggerScreenShake(CONFIG.shakeIntensity, 0.16);
+      spawnParticles(p.x, p.y, "#38bdf8", 12, 4);
+
+      if (p.hp <= 0) {
+        endGame("lose");
+      }
+    }
+
+    function damageBoss(amount, hitX, hitY, poiseDamage = CONFIG.bossPoiseDamagePerHit) {
+      const b = gameState.boss;
+      if (gameState.isOver) return;
+
+      // 暴击判定（商店暴击率加成，暴击造成 2 倍伤害）
+      const isCrit = Math.random() * 100 < shopState.critChance;
+      const critMultiplier = isCrit ? 2.0 : 1.0;
+
+      // 有韧性条期间，Boss 受到的伤害为 20%（减伤80%）；破韧眩晕期间承受 100% 伤害
+      const isStunned = b.poise <= 0 || b.stunTimer > 0;
+      const damageScale = isStunned ? 1.0 : CONFIG.bossPoiseDamageScale;
+      const actualDamage = amount * critMultiplier * damageScale;
+
+      b.hp = Math.max(0, b.hp - actualDamage);
+      b.hitFlashTimer = CONFIG.hitFlashDuration;
+      b.timeSinceLastHit = 0;
+
+      gameState.combo += 1;
+      gameState.maxCombo = Math.max(gameState.maxCombo, gameState.combo);
+      gameState.totalDamageDealt += actualDamage;
+
+      // 飘字伤害反馈
+      const dmgLabel = actualDamage >= 1 ? Math.round(actualDamage) : actualDamage.toFixed(1);
+      if (isCrit) {
+        spawnFloatingText(hitX, hitY - 10, `${dmgLabel}!`, "#facc15", 1.38);
+        spawnParticles(hitX, hitY, "#facc15", 10, 3.8);
+      } else if (isStunned) {
+        spawnFloatingText(hitX, hitY - 10, `${dmgLabel}`, "#fb923c", 1.12);
+      } else {
+        spawnFloatingText(hitX, hitY - 10, `${dmgLabel}`, "#e2e8f0", 0.92);
+      }
+
+      // 削减韧性条：打空时造成1.5秒眩晕且无法攻击
+      if (b.stunTimer <= 0 && b.hp > 0) {
+        b.poise = Math.max(0, b.poise - poiseDamage);
+        if (b.poise === 0) {
+          b.stunTimer = CONFIG.bossStunDuration;
+          gameState.stunCount += 1;
+          // 打断当前激光预警/释放并重置蓄力
+          if (b.laserState !== "charging") {
+            b.laserState = "charging";
+            b.laserTimer = CONFIG.p2LaserChargeTime;
+          }
+          triggerScreenShake(8, 0.25);
+          showBanner(`⚡ BOSS 破韧眩晕 (${CONFIG.bossStunDuration.toFixed(1)}s) ⚡`, 1.5);
+          spawnParticles(b.x, b.y, "#facc15", 22, 4.5);
+
+          // 30% 概率在地图任意位置掉落血包或护盾
+          if (Math.random() < CONFIG.bossStunDropChance) {
+            const dropType = Math.random() < 0.5 ? "heal" : "shield";
+            const marginX = 60;
+            const minY = 95;
+            const maxY = Math.max(minY + 40, canvas.height - 60);
+            const dropX = marginX + Math.random() * Math.max(40, canvas.width - marginX * 2);
+            const dropY = minY + Math.random() * (maxY - minY);
+            gameState.pickups.push({
+              type: dropType,
+              x: dropX,
+              y: dropY,
+              radius: 13,
+              life: 14,
+              bobPhase: 0
+            });
+            spawnParticles(dropX, dropY, dropType === "heal" ? "#4ade80" : "#22d3ee", 12, 3.2);
+          }
+        }
+      }
+
+      triggerScreenShake(2.5, 0.08);
+      spawnParticles(hitX, hitY, "#fde047", 5, 2.5);
+
+      if (b.hp <= 0) {
+        spawnParticles(b.x, b.y, "#ef4444", 36, 6);
+        endGame("win");
+      }
+    }
+
+    function triggerScreenShake(magnitude, duration) {
+      gameState.shakeMagnitude = Math.max(gameState.shakeMagnitude, magnitude);
+      gameState.shakeTimer = Math.max(gameState.shakeTimer, duration);
+    }
+
+    function showBanner(text, duration) {
+      gameState.bannerText = text;
+      gameState.bannerTimer = duration;
+    }
+
+    function endGame(result) {
+      gameState.isOver = true;
+      gameState.result = result;
+      if (isSimulating) return;
+
+      let coinRewardText = "";
+      if (result === "win") {
+        const hasComboBonus = gameState.maxCombo >= 50;
+        const reward = hasComboBonus ? 150 : 100;
+        shopState.coins += reward;
+        const bonusNote = hasComboBonus ? "（含高连击加成+50%）" : "";
+        coinRewardText = `<strong style="color:#facc15;">💰 击败 Boss 奖励：+${reward} 金币${bonusNote}（当前：${shopState.coins}）</strong><br/>`;
+        if (gameState.level < 2) {
+          stage2Unlocked = true;
+          ui.resultTitle.textContent = `第 ${gameState.level} 关 挑战成功`;
+          ui.upgradeSection.classList.add("visible");
+          ui.btnNextLevel.style.display = "none";
+          ui.btnRestart.textContent = "重玩第 1 关";
+        } else {
+          ui.resultTitle.textContent = "全关卡挑战成功！";
+          ui.upgradeSection.classList.remove("visible");
+          ui.btnNextLevel.style.display = "none";
+          ui.btnRestart.textContent = "重玩第 2 关";
+        }
+      } else {
+        ui.resultTitle.textContent = `第 ${gameState.level} 关 挑战失败`;
+        ui.upgradeSection.classList.remove("visible");
+        ui.btnNextLevel.style.display = "none";
+        ui.btnRestart.textContent = "重新挑战";
+      }
+
+      syncHud();
+      syncShopUi();
+
+      ui.resultTitle.className = `result-title ${result}`;
+      ui.resultStats.innerHTML = `
+        ${coinRewardText}
+        当前关卡：STAGE ${gameState.level} / 2 · 最高连击：${gameState.maxCombo}<br/>
+        战斗耗时：${gameState.elapsedTime.toFixed(1)} 秒 · 平均 DPS：${(gameState.totalDamageDealt / Math.max(0.1, gameState.elapsedTime)).toFixed(1)}<br/>
+        受击次数：${gameState.damageTakenCount} 次 · 完美闪避：${gameState.justDodgeCount} 次<br/>
+        无敌冲刺闪避弹幕：${gameState.dodgedByDashCount} 发
+      `;
+      ui.resultOverlay.classList.add("visible");
+    }
+
+    // =========================================================================
+    // 8. 粒子系统与几何工具
+    // =========================================================================
+    function spawnParticles(x, y, color, count, maxSpeed) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = (0.3 + Math.random() * 0.7) * maxSpeed;
+        gameState.particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 2 + Math.random() * 2.5,
+          life: 0.25 + Math.random() * 0.25,
+          maxLife: 0.5,
+          color
+        });
+      }
+    }
+
+    function spawnFloatingText(x, y, text, color = "#ffffff", scale = 1.0) {
+      if (isSimulating) return;
+      gameState.floatingTexts.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y,
+        vy: -38,
+        text,
+        color,
+        scale,
+        life: 0.65,
+        maxLife: 0.65
+      });
+    }
+
+    function updateParticles(dt) {
+      const scale = dt * 60;
+      for (let i = gameState.particles.length - 1; i >= 0; i--) {
+        const pt = gameState.particles[i];
+        pt.x += pt.vx * scale;
+        pt.y += pt.vy * scale;
+        pt.life -= dt;
+        if (pt.life <= 0) gameState.particles.splice(i, 1);
+      }
+      for (let i = gameState.floatingTexts.length - 1; i >= 0; i--) {
+        const ft = gameState.floatingTexts[i];
+        ft.y += ft.vy * dt;
+        ft.life -= dt;
+        if (ft.life <= 0) gameState.floatingTexts.splice(i, 1);
+      }
+    }
+
+    function pointToLineDistance(px, py, x0, y0, angle) {
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      return Math.abs((px - x0) * dy - (py - y0) * dx);
+    }
+
+    // =========================================================================
+    // 9. 渲染管线 (Canvas 2D)
+    // =========================================================================
+    function render() {
+      ctx.save();
+
+      if (isInMainMenu) {
+        ctx.fillStyle = "#0d1017";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+        ctx.restore();
+        return;
+      }
+
+      // 屏幕震动偏移
+      if (gameState.shakeTimer > 0) {
+        const sx = (Math.random() - 0.5) * 2 * gameState.shakeMagnitude;
+        const sy = (Math.random() - 0.5) * 2 * gameState.shakeMagnitude;
+        ctx.translate(sx, sy);
+      }
+
+      // 背景与极简战术网格
+      ctx.fillStyle = "#0d1017";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+
+      // 绘制二阶段陨石预警与下坠效果
+      drawMeteors();
+
+      // 绘制 Phase 2 激光（预警线或发射光束）
+      drawBossLaser();
+
+      // 绘制玩家满 MP 激光攻击与清弹冲击波
+      drawPlayerLaser();
+      drawClearWave();
+
+      // 绘制冲刺残影
+      const p = gameState.player;
+      for (const ghost of p.afterimages) {
+        ctx.beginPath();
+        ctx.arc(ghost.x, ghost.y, CONFIG.playerRadius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(96, 165, 250, ${ghost.alpha * 0.6})`;
+        ctx.fill();
+      }
+
+      // 绘制玩家子弹
+      for (const pb of gameState.playerBullets) {
+        if (pb.shape === "diamond") {
+          const angle = Math.atan2(pb.vy, pb.vx);
+          ctx.save();
+          ctx.translate(pb.x, pb.y);
+          ctx.rotate(angle);
+          ctx.beginPath();
+          ctx.moveTo(6, 0);
+          ctx.lineTo(0, 3.5);
+          ctx.lineTo(-6, 0);
+          ctx.lineTo(0, -3.5);
+          ctx.closePath();
+          ctx.fillStyle = pb.color || "#ef4444";
+          ctx.fill();
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "#fecaca";
+          ctx.stroke();
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(pb.x, pb.y, pb.radius, 0, Math.PI * 2);
+          ctx.fillStyle = pb.color || "#7dd3fc";
+          ctx.fill();
+        }
+      }
+
+      // 绘制 Boss 子弹
+      for (const bb of gameState.bossBullets) {
+        ctx.beginPath();
+        ctx.arc(bb.x, bb.y, bb.radius, 0, Math.PI * 2);
+        ctx.fillStyle = bb.color;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.stroke();
+      }
+
+      // 绘制 Boss、幻影分身与掉落物
+      drawPhantoms();
+      drawBoss();
+      drawPickups();
+
+      // 绘制玩家与僚机
+      drawPlayer();
+      drawWingman();
+
+      // 绘制粒子与飘字伤害
+      for (const pt of gameState.particles) {
+        ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fillStyle = pt.color;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      for (const ft of gameState.floatingTexts) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+        ctx.font = `bold ${Math.round(14 * ft.scale)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.restore();
+      }
+
+      // 绘制阶段切换提示横幅
+      if (gameState.bannerTimer > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, gameState.bannerTimer * 1.5);
+        ctx.font = "bold 20px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fca5a5";
+        ctx.fillText(gameState.bannerText, canvas.width / 2, canvas.height * 0.28);
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
+    function drawWingman() {
+      if (!playerUpgrades.hasWingman) return;
+      const w = gameState.player.wingman;
+      const b = gameState.boss;
+      const angle = Math.atan2(b.y - w.y, b.x - w.x);
+
+      // 体积约为玩家圆形(半径13)的一半：红色三角形
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#fecaca";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawMeteors() {
+      for (const m of gameState.meteors) {
+        const progress = 1 - Math.max(0, m.timer / m.maxTimer);
+        ctx.save();
+        ctx.translate(m.x, m.y);
+
+        // 地面红色预警圈
+        ctx.beginPath();
+        ctx.arc(0, 0, m.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.12 + progress * 0.22})`;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(248, 113, 113, 0.85)";
+        ctx.stroke();
+
+        // 随进度扩张的内圈
+        ctx.beginPath();
+        ctx.arc(0, 0, m.radius * progress, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(250, 204, 21, 0.85)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 从高空急速下坠的陨石火球投影
+        const fallHeight = (1 - progress) * 180;
+        ctx.beginPath();
+        ctx.arc(0, -fallHeight, 12, 0, Math.PI * 2);
+        ctx.fillStyle = "#f97316";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#fde047";
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
+    function drawClearWave() {
+      const wave = gameState.player.clearWave;
+      if (!wave) return;
+      const progress = 1 - wave.timer / wave.maxTimer;
+      const currentRadius = wave.maxRadius * progress;
+      const alpha = Math.max(0, wave.timer / wave.maxTimer);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(wave.x, wave.y, currentRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(56, 189, 248, ${alpha * 0.9})`;
+      ctx.lineWidth = 6 * alpha + 2;
+      ctx.stroke();
+      ctx.fillStyle = `rgba(56, 189, 248, ${alpha * 0.15})`;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawPhantoms() {
+      const size = CONFIG.bossSize;
+      const half = size / 2;
+      for (const ph of gameState.phantoms) {
+        const alpha = 0.45 * Math.max(0, ph.life / ph.maxLife);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(ph.x, ph.y);
+        ctx.fillStyle = "#7c3aed";
+        ctx.fillRect(-half, -half, size, size);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ddd6fe";
+        ctx.strokeRect(-half, -half, size, size);
+        ctx.font = "bold 10px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ede9fe";
+        ctx.fillText("PHANTOM", 0, -half - 6);
+        ctx.restore();
+      }
+    }
+
+    function drawPickups() {
+      for (const item of gameState.pickups) {
+        const yOffset = Math.sin(item.bobPhase) * 4;
+        const x = item.x;
+        const y = item.y + yOffset;
+
+        ctx.save();
+        ctx.translate(x, y);
+        if (item.type === "heal") {
+          // 血包：绿色发光圆 + 白色十字
+          ctx.beginPath();
+          ctx.arc(0, 0, item.radius, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(22, 163, 74, 0.9)";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#86efac";
+          ctx.stroke();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(-2, -6, 4, 12);
+          ctx.fillRect(-6, -2, 12, 4);
+        } else {
+          // 护盾：青蓝色发光圆 + 盾牌轮廓
+          ctx.beginPath();
+          ctx.arc(0, 0, item.radius, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(8, 145, 178, 0.9)";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#67e8f9";
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(0, -7);
+          ctx.lineTo(6, -3);
+          ctx.lineTo(5, 3);
+          ctx.lineTo(0, 7);
+          ctx.lineTo(-5, 3);
+          ctx.lineTo(-6, -3);
+          ctx.closePath();
+          ctx.strokeStyle = "#ecfeff";
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawGrid() {
+      const step = 48;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x < canvas.width; x += step) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+      }
+      for (let y = 0; y < canvas.height; y += step) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawPlayer() {
+      const p = gameState.player;
+      const isInvuln = p.dashInvulnTimer > 0;
+      const isDashing = p.dashTimer > 0;
+
+      ctx.save();
+      // 冲刺期间半透明
+      ctx.globalAlpha = isDashing || isInvuln ? 0.45 : 1.0;
+
+      // 护盾道具激活外环（可抵挡一次伤害）
+      if (p.hasShield) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, CONFIG.playerRadius + 8, 0, Math.PI * 2);
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      // 无敌护盾外圈
+      if (isInvuln) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, CONFIG.playerRadius + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = "#c084fc";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // 玩家蓝色圆形主体（受击闪烁为白色）
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, CONFIG.playerRadius, 0, Math.PI * 2);
+      ctx.fillStyle = p.hitFlashTimer > 0 ? "#ffffff" : "#3b82f6";
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#bae6fd";
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawWingman() {
+      if (!playerUpgrades.hasWingman) return;
+      const w = gameState.player.wingman;
+      const b = gameState.boss;
+      const angle = Math.atan2(b.y - w.y, b.x - w.x);
+
+      // 体积约为玩家圆形(半径13)的一半：红色三角形
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#fecaca";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawBoss() {
+      const b = gameState.boss;
+      const lvlCfg = LEVEL_CONFIGS[gameState.level] || LEVEL_CONFIGS[1];
+      const size = CONFIG.bossSize;
+      const half = size / 2;
+      const isEnraged = b.phase === BOSS_PHASE.PHASE_2;
+
+      ctx.save();
+      ctx.translate(b.x, b.y);
+
+      // 外圈旋转机械框
+      ctx.save();
+      ctx.rotate(b.pulseAngle * (isEnraged ? 1.8 : 0.7));
+      ctx.strokeStyle = isEnraged ? "rgba(248, 113, 113, 0.45)" : "rgba(251, 113, 133, 0.25)";
+      if (gameState.level === 2) {
+        ctx.strokeStyle = isEnraged ? "rgba(192, 132, 252, 0.65)" : "rgba(167, 139, 250, 0.35)";
+      }
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-half - 8, -half - 8, size + 16, size + 16);
+      ctx.restore();
+
+      // Phase 2 激光蓄力环
+      if (isEnraged && b.laserState === "charging") {
+        const progress = 1 - b.laserTimer / CONFIG.p2LaserChargeTime;
+        ctx.beginPath();
+        ctx.arc(0, 0, half + 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        ctx.strokeStyle = "rgba(250, 204, 21, 0.75)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Boss 方块主体（按关卡与阶段着色，受击闪烁白色）
+      if (b.hitFlashTimer > 0) {
+        ctx.fillStyle = "#ffffff";
+      } else {
+        ctx.fillStyle = isEnraged ? lvlCfg.colorP2 : lvlCfg.colorP1;
+      }
+      ctx.fillRect(-half, -half, size, size);
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = isEnraged ? lvlCfg.borderP2 : lvlCfg.borderP1;
+      ctx.strokeRect(-half, -half, size, size);
+
+      // Boss 核心图案
+      ctx.fillStyle = b.stunTimer > 0 ? "#94a3b8" : (isEnraged ? lvlCfg.coreP2 : lvlCfg.coreP1);
+      ctx.fillRect(-9, -9, 18, 18);
+
+      // 眩晕状态视觉标识（旋转晕眩星环）
+      if (b.stunTimer > 0) {
+        const stunAngle = performance.now() * 0.008;
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, -half - 14, 20, 6, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        for (let i = 0; i < 3; i++) {
+          const a = stunAngle + (Math.PI * 2 * i) / 3;
+          const sx = Math.cos(a) * 20;
+          const sy = -half - 14 + Math.sin(a) * 6;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 3.2, 0, Math.PI * 2);
+          ctx.fillStyle = "#fde047";
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    function drawWingman() {
+      if (!playerUpgrades.hasWingman) return;
+      const w = gameState.player.wingman;
+      const b = gameState.boss;
+      const angle = Math.atan2(b.y - w.y, b.x - w.x);
+
+      // 体积约为玩家圆形(半径13)的一半：红色三角形
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#fecaca";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPlayerLaser() {
+      const beam = gameState.player.laserBeam;
+      if (!beam) return;
+
+      const alpha = Math.max(0, beam.timer / CONFIG.playerLaserDuration);
+      const length = Math.hypot(canvas.width, canvas.height) * 1.5;
+      const endX = beam.x + Math.cos(beam.angle) * length;
+      const endY = beam.y + Math.sin(beam.angle) * length;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = "round";
+
+      ctx.strokeStyle = beam.isTwin ? "rgba(250, 204, 21, 0.55)" : "rgba(34, 211, 238, 0.45)";
+      ctx.lineWidth = (beam.isTwin ? 48 : 34) * alpha + 6;
+      ctx.beginPath();
+      ctx.moveTo(beam.x, beam.y);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      ctx.strokeStyle = beam.isTwin ? "#fef08a" : "#ecfeff";
+      ctx.lineWidth = (beam.isTwin ? 18 : 12) * alpha + 2;
+      ctx.beginPath();
+      ctx.moveTo(beam.x, beam.y);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawWingman() {
+      if (!playerUpgrades.hasWingman) return;
+      const w = gameState.player.wingman;
+      const b = gameState.boss;
+      const angle = Math.atan2(b.y - w.y, b.x - w.x);
+
+      // 体积约为玩家圆形(半径13)的一半：红色三角形
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#fecaca";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawBossLaser() {
+      const b = gameState.boss;
+      if (b.phase !== BOSS_PHASE.PHASE_2 || b.stunTimer > 0) return;
+      if (b.laserState !== "warning" && b.laserState !== "firing") return;
+
+      const length = Math.hypot(canvas.width, canvas.height) * 1.5;
+
+      ctx.save();
+      for (const angle of b.laserAngles) {
+        const endX = b.x + Math.cos(angle) * length;
+        const endY = b.y + Math.sin(angle) * length;
+        const startX = b.x - Math.cos(angle) * length;
+        const startY = b.y - Math.sin(angle) * length;
+
+        if (b.laserState === "warning") {
+          const blink = Math.sin(b.laserTimer * 28) > 0 ? 0.9 : 0.35;
+          ctx.setLineDash([12, 8]);
+          ctx.strokeStyle =
+            gameState.level === 2
+              ? `rgba(192, 132, 252, ${blink})`
+              : `rgba(248, 113, 113, ${blink})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+        } else if (b.laserState === "firing") {
+          ctx.strokeStyle =
+            gameState.level === 2 ? "rgba(168, 85, 247, 0.45)" : "rgba(239, 68, 68, 0.45)";
+          ctx.lineWidth = 38;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 14;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawWingman() {
+      if (!playerUpgrades.hasWingman) return;
+      const w = gameState.player.wingman;
+      const b = gameState.boss;
+      const angle = Math.atan2(b.y - w.y, b.x - w.x);
+
+      // 体积约为玩家圆形(半径13)的一半：红色三角形
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#fecaca";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // 10. HUD 与右上角策划调试面板同步
+    // =========================================================================
+    function syncHud() {
+      const b = gameState.boss;
+      const p = gameState.player;
+      const lvlCfg = LEVEL_CONFIGS[gameState.level] || LEVEL_CONFIGS[1];
+
+      ui.bossTitle.textContent = lvlCfg.title;
+
+      const bossPct = Math.max(0, (b.hp / b.maxHp) * 100);
+      ui.bossHpFill.style.width = `${bossPct}%`;
+      ui.bossHpText.textContent = `${Math.ceil(b.hp)} / ${b.maxHp}`;
+
+      const poisePct = Math.max(0, (b.poise / b.maxPoise) * 100);
+      ui.bossPoiseFill.style.width = `${poisePct}%`;
+      if (b.stunTimer > 0) {
+        ui.bossPoiseFill.classList.add("stunned");
+        ui.bossPoiseText.textContent = `眩晕中 (${b.stunTimer.toFixed(1)}s) · 全额伤害`;
+      } else {
+        ui.bossPoiseFill.classList.remove("stunned");
+        ui.bossPoiseText.textContent = `韧性 ${Math.ceil(b.poise)} / ${b.maxPoise} · 减伤80%`;
+      }
+
+      if (b.stunTimer > 0) {
+        ui.bossPhaseTag.textContent = "STUNNED: 破韧眩晕";
+      } else if (b.phase === BOSS_PHASE.PHASE_2) {
+        ui.bossPhaseTag.textContent = "PHASE 2: 狂暴追踪";
+        ui.bossPhaseTag.classList.add("enraged");
+      } else {
+        ui.bossPhaseTag.textContent = "PHASE 1: 弹幕压制";
+        ui.bossPhaseTag.classList.remove("enraged");
+      }
+
+      const playerPct = Math.max(0, (p.hp / p.maxHp) * 100);
+      ui.playerHpFill.style.width = `${playerPct}%`;
+      ui.playerHpText.textContent = `${Math.ceil(p.hp)} / ${p.maxHp}`;
+
+      const dashRatio = 1 - Math.min(1, p.dashCdTimer / CONFIG.dashCooldown);
+      ui.dashCdFill.style.width = `${dashRatio * 100}%`;
+      ui.dashStatusText.textContent = p.dashCdTimer > 0 ? `${p.dashCdTimer.toFixed(1)}s` : "就绪";
+
+      const mpPct = Math.min(100, (p.mp / p.maxMp) * 100);
+      ui.playerMpFill.style.width = `${mpPct}%`;
+      if (p.mp >= CONFIG.playerLaserCost) {
+        ui.playerMpFill.classList.add("ready");
+        ui.mpStatusText.textContent = `${p.mp} / ${p.maxMp} (右键就绪)`;
+      } else {
+        ui.playerMpFill.classList.remove("ready");
+        ui.mpStatusText.textContent = `${p.mp} / ${p.maxMp}`;
+      }
+
+      if (!shopState.hasClearSkill) {
+        ui.clearSkillText.textContent = "未解锁 (商店100G)";
+        ui.clearSkillText.style.color = "#94a3b8";
+      } else if (p.clearSkillCdTimer > 0) {
+        ui.clearSkillText.textContent = `冷却 ${p.clearSkillCdTimer.toFixed(1)}s`;
+        ui.clearSkillText.style.color = "#facc15";
+      } else {
+        ui.clearSkillText.textContent = "就绪 (按E释放)";
+        ui.clearSkillText.style.color = "#4ade80";
+      }
+
+      const dps = gameState.totalDamageDealt / Math.max(0.1, gameState.elapsedTime);
+      ui.hudStatsLine.textContent = `连击 ${gameState.combo} · DPS ${dps.toFixed(1)} · 攻+${shopState.bonusAttack} 暴${shopState.critChance.toFixed(1)}%`;
+      ui.hudCoinsText.textContent = `💰 ${shopState.coins} 金币`;
+    }
+
+    function syncShopUi() {
+      ui.shopCoinsText.textContent = `💰 ${shopState.coins} 金币`;
+      ui.shopDescClearSkill.textContent = shopState.hasClearSkill
+        ? "已解锁（战斗中按 E 键清除周围弹幕，冷却 5s）"
+        : "释放电磁冲击波，清除周围半径 280px 内所有弹幕（冷却 5s）";
+      ui.shopDescAtk.textContent = `当前加成：+${shopState.bonusAttack} 攻击力`;
+      ui.shopDescCrit.textContent = `当前暴击率：${shopState.critChance.toFixed(1)}%（暴击造成 200% 伤害）`;
+      ui.shopDescAspd.textContent = `当前加成：+${shopState.attackSpeedBonus}% 攻速`;
+      ui.shopDescHp.textContent = `当前加成：+${shopState.bonusMaxHp} HP`;
+      ui.shopDescGlass.textContent = shopState.hasGlassCannon ? "已购买（攻击 +5，血量上限 -30%）" : "攻击力 +5，但生命上限 -30%";
+      ui.shopDescMagnet.textContent = shopState.hasMagnet ? "已购买（全图自动吸附血包与护盾）" : "自动吸附全图血包与护盾";
+      ui.shopDescTwinLaser.textContent = shopState.hasTwinLaser
+        ? "已购买（5 MP 普通激光 / 满 10 MP 双生激光：120伤+击溃50%韧性）"
+        : "保留 5 MP 普通激光(50伤)；满 10 MP 释放双生激光(120伤 + 击溃50%韧性/低于30直接击碎)";
+
+      document.querySelectorAll(".shop-buy-btn").forEach((btn) => {
+        const item = btn.dataset.shop;
+        if (item === "clearSkill") {
+          btn.textContent = shopState.hasClearSkill ? "已解锁" : "100 金币";
+          btn.disabled = shopState.hasClearSkill || shopState.coins < 100;
+        } else if (item === "glassCannon") {
+          btn.textContent = shopState.hasGlassCannon ? "已购买" : "40 金币";
+          btn.disabled = shopState.hasGlassCannon || shopState.coins < 40;
+        } else if (item === "magnet") {
+          btn.textContent = shopState.hasMagnet ? "已购买" : "30 金币";
+          btn.disabled = shopState.hasMagnet || shopState.coins < 30;
+        } else if (item === "twinLaser") {
+          btn.textContent = shopState.hasTwinLaser ? "已购买" : "60 金币";
+          btn.disabled = shopState.hasTwinLaser || shopState.coins < 60;
+        } else {
+          btn.disabled = shopState.coins < 10;
+        }
+      });
+    }
+
+    function initDebugPanel() {
+      const panel = document.getElementById("debugPanel");
+      const header = document.getElementById("debugHeader");
+      const toggleIcon = document.getElementById("debugToggleIcon");
+
+      header.addEventListener("click", () => {
+        panel.classList.toggle("collapsed");
+        toggleIcon.textContent = panel.classList.contains("collapsed") ? "◀" : "▼";
+      });
+
+      const bindings = [
+        {
+          slider: "sliderBossMaxHp",
+          label: "valBossMaxHp",
+          format: (v) => `${v}`,
+          onChange: (v) => {
+            const lvlCfg = LEVEL_CONFIGS[gameState.level] || LEVEL_CONFIGS[1];
+            const ratio = gameState.boss.hp / gameState.boss.maxHp;
+            CONFIG.bossMaxHp = v;
+            gameState.boss.maxHp = Math.round(v * lvlCfg.hpScale);
+            gameState.boss.hp = Math.max(1, Math.round(gameState.boss.maxHp * ratio));
+          }
+        },
+        {
+          slider: "sliderBossSpeed",
+          label: "valBossSpeed",
+          format: (v) => v.toFixed(1),
+          onChange: (v) => {
+            CONFIG.bossSpeed = v;
+          }
+        },
+        {
+          slider: "sliderBulletSpeed",
+          label: "valBulletSpeed",
+          format: (v) => v.toFixed(1),
+          onChange: (v) => {
+            CONFIG.bulletSpeed = v;
+          }
+        },
+        {
+          slider: "sliderPlayerMaxHp",
+          label: "valPlayerMaxHp",
+          format: (v) => `${v}`,
+          onChange: (v) => {
+            const ratio = gameState.player.hp / gameState.player.maxHp;
+            CONFIG.playerMaxHp = v;
+            gameState.player.maxHp = v + shopState.bonusMaxHp;
+            gameState.player.hp = Math.max(1, Math.round(gameState.player.maxHp * ratio));
+          }
+        },
+        {
+          slider: "sliderDashInvuln",
+          label: "valDashInvuln",
+          format: (v) => `${v.toFixed(2)}s`,
+          onChange: (v) => {
+            CONFIG.dashInvulnDuration = v;
+            CONFIG.dashDuration = v;
+          }
+        }
+      ];
+
+      function refreshSlidersFromConfig() {
+        document.getElementById("sliderBossMaxHp").value = CONFIG.bossMaxHp;
+        document.getElementById("valBossMaxHp").textContent = CONFIG.bossMaxHp;
+
+        document.getElementById("sliderBossSpeed").value = CONFIG.bossSpeed;
+        document.getElementById("valBossSpeed").textContent = CONFIG.bossSpeed.toFixed(1);
+
+        document.getElementById("sliderBulletSpeed").value = CONFIG.bulletSpeed;
+        document.getElementById("valBulletSpeed").textContent = CONFIG.bulletSpeed.toFixed(1);
+
+        document.getElementById("sliderPlayerMaxHp").value = CONFIG.playerMaxHp;
+        document.getElementById("valPlayerMaxHp").textContent = CONFIG.playerMaxHp;
+
+        document.getElementById("sliderDashInvuln").value = CONFIG.dashInvulnDuration;
+        document.getElementById("valDashInvuln").textContent = `${CONFIG.dashInvulnDuration.toFixed(2)}s`;
+      }
+
+      for (const item of bindings) {
+        const sliderEl = document.getElementById(item.slider);
+        const labelEl = document.getElementById(item.label);
+        sliderEl.addEventListener("input", () => {
+          const val = parseFloat(sliderEl.value);
+          labelEl.textContent = item.format(val);
+          item.onChange(val);
+          syncHud();
+        });
+      }
+
+      document.getElementById("btnResetConfig").addEventListener("click", () => {
+        Object.assign(CONFIG, DEFAULT_CONFIG);
+        shopState = { ...DEFAULT_SHOP_STATE };
+        refreshSlidersFromConfig();
+        resetGame(1, true);
+        syncShopUi();
+      });
+
+      document.getElementById("btnQuickRestart").addEventListener("click", () => resetGame(currentLevel, currentLevel === 1));
+      document.getElementById("btnLevel1").addEventListener("click", () => resetGame(1, true));
+      document.getElementById("btnLevel2").addEventListener("click", () => resetGame(2, false));
+      document.getElementById("btnBackMenuDebug").addEventListener("click", enterMainMenu);
+      document.getElementById("btnStartStage1").addEventListener("click", () => resetGame(1, true));
+      ui.btnStartStage2.addEventListener("click", () => resetGame(2, false));
+      document.getElementById("btnBackToMenu").addEventListener("click", enterMainMenu);
+      ui.btnNextLevel.addEventListener("click", () => resetGame(2, false));
+      ui.btnRestart.addEventListener("click", () => resetGame(currentLevel, currentLevel === 1));
+
+      document.getElementById("btnAddTestCoins").addEventListener("click", () => {
+        shopState.coins += 100;
+        syncHud();
+        syncShopUi();
+        if (isInMainMenu) syncMenuUi();
+      });
+
+      ui.menuShopPanel.addEventListener("click", (e) => {
+        const btn = e.target.closest(".shop-buy-btn");
+        if (!btn || btn.disabled) return;
+        const item = btn.dataset.shop;
+
+        if (item === "clearSkill" && shopState.coins >= 100 && !shopState.hasClearSkill) {
+          shopState.coins -= 100;
+          shopState.hasClearSkill = true;
+        } else if (item === "atk" && shopState.coins >= 10) {
+          shopState.coins -= 10;
+          shopState.bonusAttack += 1;
+        } else if (item === "crit" && shopState.coins >= 10) {
+          shopState.coins -= 10;
+          shopState.critChance = +(shopState.critChance + 0.5).toFixed(1);
+        } else if (item === "aspd" && shopState.coins >= 10) {
+          shopState.coins -= 10;
+          shopState.attackSpeedBonus += 20;
+        } else if (item === "hp" && shopState.coins >= 10) {
+          shopState.coins -= 10;
+          shopState.bonusMaxHp += 10;
+          if (gameState && gameState.player) {
+            gameState.player.maxHp += 10;
+            gameState.player.hp += 10;
+          }
+        } else if (item === "glassCannon" && shopState.coins >= 40 && !shopState.hasGlassCannon) {
+          shopState.coins -= 40;
+          shopState.hasGlassCannon = true;
+          shopState.bonusAttack += 5;
+          if (gameState && gameState.player) {
+            const newMax = Math.max(10, Math.round((CONFIG.playerMaxHp + shopState.bonusMaxHp) * 0.7));
+            gameState.player.maxHp = newMax;
+            gameState.player.hp = Math.min(gameState.player.hp, newMax);
+          }
+        } else if (item === "magnet" && shopState.coins >= 30 && !shopState.hasMagnet) {
+          shopState.coins -= 30;
+          shopState.hasMagnet = true;
+        } else if (item === "twinLaser" && shopState.coins >= 60 && !shopState.hasTwinLaser) {
+          shopState.coins -= 60;
+          shopState.hasTwinLaser = true;
+        }
+        syncHud();
+        syncShopUi();
+        if (isInMainMenu) syncMenuUi();
+      });
+
+      ui.btnToggleBot.addEventListener("click", () => {
+        isAiBotEnabled = !isAiBotEnabled;
+        ui.btnToggleBot.textContent = isAiBotEnabled ? "🤖 AI 托管: 开" : "🤖 AI 托管: 关";
+      });
+
+      document.getElementById("btnStressTest").addEventListener("click", () => {
+        runStressTest(5);
+      });
+
+      ui.upgradeSection.addEventListener("click", (e) => {
+        const card = e.target.closest(".upgrade-card");
+        if (!card) return;
+        const type = card.dataset.upgrade;
+        let upgradeName = "";
+        if (type === "bullet") {
+          playerUpgrades.bulletCount += 1;
+          upgradeName = "弹道 +1";
+        } else if (type === "damage") {
+          playerUpgrades.damageMultiplier *= 2;
+          upgradeName = "伤害 × 2";
+        } else if (type === "wingman") {
+          playerUpgrades.hasWingman = true;
+          upgradeName = "自动追踪僚机";
+        }
+        resetGame(2, false, `STAGE 2 START! 已强化：${upgradeName}`);
+      });
+    }
+
+    function runStressTest(runs = 5) {
+      const savedState = gameState;
+      isSimulating = true;
+
+      let wins = 0;
+      let totalTime = 0;
+      let totalHits = 0;
+      let totalStuns = 0;
+      let totalDmg = 0;
+
+      const simDt = 1 / 60;
+      const maxSteps = 120 * 60; // 单局最多模拟120秒
+
+      for (let r = 0; r < runs; r++) {
+        gameState = createInitialState(currentLevel);
+        for (let step = 0; step < maxSteps && !gameState.isOver; step++) {
+          gameState.elapsedTime += simDt;
+          updatePlayer(simDt);
+          updateBoss(simDt);
+          updateBulletsAndCollisions(simDt);
+        }
+        if (gameState.result === "win") wins++;
+        totalTime += gameState.elapsedTime;
+        totalHits += gameState.damageTakenCount;
+        totalStuns += gameState.stunCount;
+        totalDmg += gameState.totalDamageDealt;
+      }
+
+      isSimulating = false;
+      gameState = savedState;
+      syncHud();
+
+      const avgTime = totalTime / runs;
+      const avgDps = totalDmg / Math.max(0.1, totalTime);
+      ui.stressTestResult.style.display = "block";
+      ui.stressTestResult.innerHTML = `
+        <strong>⚡ 第${currentLevel}关 ${runs}局Bot压测报告：</strong><br/>
+        通关率：${((wins / runs) * 100).toFixed(0)}% (${wins}/${runs}) · 平均耗时：${avgTime.toFixed(1)}s<br/>
+        平均受击：${(totalHits / runs).toFixed(1)}次 · 平均破韧：${(totalStuns / runs).toFixed(1)}次 · DPS：${avgDps.toFixed(1)}
+      `;
+    }
+
+    // =========================================================================
+    // 11. 主循环 (60FPS delta-time 驱动)
+    // =========================================================================
+    let lastTimestamp = performance.now();
+
+    function gameLoop(now) {
+      const dt = Math.min(0.05, (now - lastTimestamp) / 1000);
+      lastTimestamp = now;
+
+      if (!isInMainMenu && !gameState.isOver && !isShopOpen) {
+        if (gameState.timeScaleTimer > 0) {
+          gameState.timeScaleTimer = Math.max(0, gameState.timeScaleTimer - dt);
+          if (gameState.timeScaleTimer === 0) gameState.timeScale = 1.0;
+        }
+        const simDt = dt * gameState.timeScale;
+        gameState.elapsedTime += simDt;
+        if (gameState.shakeTimer > 0) {
+          gameState.shakeTimer = Math.max(0, gameState.shakeTimer - dt);
+          if (gameState.shakeTimer === 0) gameState.shakeMagnitude = 0;
+        }
+        if (gameState.bannerTimer > 0) {
+          gameState.bannerTimer = Math.max(0, gameState.bannerTimer - dt);
+        }
+
+        updatePlayer(simDt);
+        updateBoss(simDt);
+        updateBulletsAndCollisions(simDt);
+        updateParticles(simDt);
+        syncHud();
+      } else {
+        updateParticles(dt);
+      }
+
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // 启动游戏（默认停留在封面主界面，不直接进入 Boss 战）
+    initDebugPanel();
+    gameState = createInitialState(1);
+    enterMainMenu();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
